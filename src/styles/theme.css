@@ -1,0 +1,124 @@
+/* src/styles/theme.css */
+
+/* --- Pastel Theme Tokens (Light & Dark) --- */
+:root,
+[data-theme="pastel-light"] {
+  color-scheme: light;
+  --bg:            249 250 251;  /* neutral-50 */
+  --surface:       255 255 255;  /* white */
+  --card:          248 250 252;  /* neutral-50 */
+  --muted:         148 163 184;  /* neutral-400 */
+  --text:          15 23 42;     /* neutral-900 */
+  --border:        226 232 240;  /* neutral-200 */
+  --brand:         152 166 255;  /* brand-400 */
+  --brand-strong:  127 143 255;  /* brand-500 */
+  --ok:            93 207 152;   /* success-400 */
+  --warn:          255 192 89;   /* warning-400 */
+  --danger:        249 90 106;   /* danger-500 */
+}
+
+.dark,
+[data-theme="pastel-dark"] {
+  color-scheme: dark;
+  --bg:            2 6 23;       /* ~neutral-950 */
+  --surface:       15 23 42;     /* neutral-900 */
+  --card:          30 41 59;     /* neutral-800 */
+  --muted:         148 163 184;  /* neutral-400 */
+  --text:          241 245 249;  /* neutral-100 */
+  --border:        51 65 85;     /* neutral-700 */
+  --brand:         152 166 255;  /* brand-400 */
+  --brand-strong:  127 143 255;  /* brand-500 */
+  --ok:            89 221 180;   /* success-300/400 */
+  --warn:          255 208 124;  /* warning-300 */
+  --danger:        255 122 137;  /* danger-400 */
+}
+
+/* Background com gradiente suave + noise overlay */
+html, body, #root { height: 100%; }
+body {
+  background:
+    radial-gradient(1200px 400px at 20% -10%, rgba(var(--brand), .08), transparent 60%),
+    radial-gradient(800px 400px at 90% 10%, rgba(93,207,152,.10), transparent 50%),
+    linear-gradient(180deg, rgba(var(--bg),1), rgba(var(--bg),1));
+  color: rgb(var(--text));
+}
+body::after {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" opacity="0.05"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23n)"/></svg>');
+  mix-blend-mode: soft-light;
+}
+
+/* Tokens utilitários */
+:root, [data-theme] { --ring: 0 0 0 3px rgba(152,166,255,.35); }
+
+/* Card */
+.card {
+  border-radius: 16px;
+  border: 1px solid rgb(var(--border));
+  background: rgb(var(--surface));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.10);
+}
+
+/* Select e opções */
+select,
+.select {
+  background-color: rgb(var(--surface));
+  color: rgb(var(--text));
+  border: 1px solid rgb(var(--border));
+  border-radius: .5rem;
+  padding: .5rem .75rem;
+}
+select option {
+  color: rgb(var(--text));
+  background-color: rgb(var(--surface));
+}
+select:focus,
+.select:focus {
+  outline: none;
+  box-shadow: var(--ring);
+  border-color: rgb(var(--brand));
+}
+
+/* Botões */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  border-radius: .5rem; padding: .625rem .875rem; font-size: .875rem; font-weight: 500;
+  border: 1px solid transparent; transition: filter .15s ease;
+}
+.btn-primary { background: rgb(var(--brand)); color: #0b1026; }
+.btn-primary:hover { filter: brightness(0.97); }
+.btn-outline {
+  border-color: rgb(var(--border)); color: rgb(var(--text)); background: transparent;
+}
+.btn-outline:hover { background: rgba(var(--brand), .08); border-color: rgb(var(--brand)); }
+.btn-danger { background: rgb(var(--danger)); color: #1e1e1e; }
+
+/* Inputs */
+.input, .select, .textarea {
+  width: 100%; border-radius: .5rem; border: 1px solid rgb(var(--border));
+  background: rgb(var(--surface)); padding: .5rem .75rem; font-size: .875rem; outline: none;
+}
+.input:focus, .select:focus, .textarea:focus {
+  box-shadow: var(--ring); border-color: rgb(var(--brand));
+}
+
+.label { font-size: .875rem; color: rgb(var(--muted)); }
+
+/* Nav links */
+.navlink {
+  display: inline-flex; align-items: center; gap: .5rem; padding: .5rem .75rem;
+  border-radius: .5rem; font-size: .875rem; font-weight: 500; color: rgb(var(--muted));
+  transition: background-color .15s ease;
+}
+.navlink-active { color: rgb(var(--brand-strong)); background: rgba(var(--brand), .10); }
+
+/* Badges */
+.badge {
+  display: inline-flex; align-items: center; gap: .25rem;
+  border-radius: 9999px; padding: .125rem .5rem; font-size: 10px; font-weight: 600; border: 1px solid;
+}
+.badge-ok    { color: rgb(var(--ok));    border-color: rgba(var(--ok), .35);    background: rgba(var(--ok), .08); }
+.badge-warn  { color: rgb(var(--warn));  border-color: rgba(var(--warn), .35);  background: rgba(var(--warn), .08); }
+.badge-info  { color: rgb(var(--brand)); border-color: rgba(var(--brand), .35); background: rgba(var(--brand), .08); }
+.badge-dang  { color: rgb(var(--danger));border-color: rgba(var(--danger), .35);background: rgba(var(--danger), .08); }

@@ -1,0 +1,59 @@
+
+@import "tailwindcss";
+
+/* Preferência de cores do agente; permite alternar entre dark e light */
+html {
+  color-scheme: dark light;
+}
+
+/* 🎯 Tema ESCURO por defeito */
+body {
+  @apply bg-neutral-950 text-neutral-100 antialiased;
+  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  transition: background-color 0.25s, color 0.25s;
+}
+
+/* 🌞 Tema CLARO quando definido manualmente */
+:root[data-theme="light"] body,
+html.light body {
+  @apply bg-white text-neutral-900;
+}
+
+/* Tipografia base */
+h1 { @apply text-3xl md:text-4xl font-semibold tracking-tight; }
+h2 { @apply text-2xl md:text-3xl font-semibold tracking-tight; }
+h3 { @apply text-xl md:text-2xl font-semibold tracking-tight; }
+p  { @apply leading-relaxed; }
+
+/* Links */
+a { @apply text-violet-400 hover:text-violet-300 underline underline-offset-4; }
+
+/* Botões base */
+button { @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 transition-all duration-150; }
+
+/* Container utilitário */
+.container {
+  @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8;
+}
+
+/* Focus ring acessível */
+:focus-visible {
+  @apply outline-none ring-2 ring-violet-500/60 ring-offset-2 ring-offset-transparent;
+}
+
+/* Seleção de texto */
+::selection {
+  @apply bg-violet-500/30;
+}
+
+/* Scrollbar (WebKit) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { @apply bg-neutral-700/60 rounded-full; }
+html.light ::-webkit-scrollbar-thumb,
+:root[data-theme="light"] ::-webkit-scrollbar-thumb { @apply bg-neutral-400/60; }
+
+/* Reduzir movimentos para quem preferir */
+@media (prefers-reduced-motion: reduce) {
+  * { @apply transition-none; }
+}
+
