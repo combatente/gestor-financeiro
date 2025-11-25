@@ -1,3 +1,4 @@
+
 import { useMemo, useState } from 'react'
 import { useFirestore } from '../hooks/useFirestore'
 import CategorySelect from './CategorySelect'
@@ -21,10 +22,8 @@ export default function Transactions() {
   const [data, setData] = useState<string>(new Date().toISOString().slice(0, 10)) // YYYY-MM-DD
   const [categoryId, setCategoryId] = useState<string>('')
 
-  // NOVO: descrição livre (opcional)
   const [descricao, setDescricao] = useState<string>('')
 
-  // Label da categoria por id para a lista
   const idToLabel = useMemo(() => {
     const m = new Map<string, string>()
     for (const c of categories) {
@@ -60,20 +59,16 @@ export default function Transactions() {
         valor: v,
         data,
         categoryId: categoryId || undefined,
-        descricao: descricao.trim() || undefined, // 👈 novo
+        descricao: descricao.trim() || undefined,
       })
       setValor('')
       setDescricao('')
-      // Mantemos categoria e tipo para mais entradas consecutivas
+      // Mantemos tipo/categoria para lançamentos consecutivos
     } catch (e: any) {
       alert(e?.message ?? 'Erro ao adicionar transação.')
     }
   }
 
-  // Escolha do "type" para CategorySelect:
-  // - 'receita' → categorias de receita
-  // - 'poupanca' → categorias de poupanca (ou de despesa de transferência, conforme o teu modelo)
-  // - demais → 'despesa'
   const categoryTypeForSelect: 'receita' | 'poupanca' | 'despesa' =
     type === 'receita' ? 'receita' : type === 'poupanca' ? 'poupanca' : 'despesa'
 
@@ -81,8 +76,19 @@ export default function Transactions() {
     <section className="space-y-6">
       <h2 className="text-xl font-semibold">📋 Transações</h2>
 
-      {/* Formulário */}
-      <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-3">
+      {/* Formulário sticky */}
+      <form
+        onSubmit={handleAdd}
+        className="
+          sticky top-0 z-20
+          flex flex-wrap items-end gap-3
+          py-3
+          bg-neutral-900/80 backdrop-blur
+          dark:bg-slate-800/80
+          border border-white/10 rounded
+          shadow-sm
+        "
+      >
         {/* Tipo */}
         <div className="flex flex-col">
           <label className="text-sm text-neutral-400">Tipo</label>
@@ -113,13 +119,13 @@ export default function Transactions() {
         </div>
 
         {/* Descrição */}
-        <div className="flex flex-col">
+        <div className="flex flex-col flex-1 min-w-64">
           <label className="text-sm text-neutral-400">Descrição (opcional)</label>
           <input
             value={descricao}
             onChange={(e) => setDescricao(e.target.value)}
             placeholder="Ex.: Continente Braga Parque"
-            className="input min-w-64"
+            className="input w-full"
             maxLength={200}
           />
         </div>
@@ -151,6 +157,7 @@ export default function Transactions() {
           />
         </div>
 
+        {/* Botão adicionar — sempre visível */}
         <button type="submit" disabled={saving} className="btn btn-primary">
           {saving ? 'A guardar…' : 'Adicionar'}
         </button>
@@ -158,21 +165,30 @@ export default function Transactions() {
 
       {error && <p className="text-red-400 text-sm">{String(error)}</p>}
 
-      {/* Lista de transações */}
+      {/* Lista rolável */}
       {transacoes.length === 0 ? (
         <p className="text-slate-500">Sem transações</p>
       ) : (
-        <div className="divide-y divide-white/5 rounded border border-white/10">
+        <div
+          className="
+            rounded border border-white/10
+            max-h-[65vh] overflow-y-auto
+            divide-y divide-white/5
+          "
+        >
           {transacoes.map((t) => {
             const isReceita = t.type === 'receita'
             const isPoupanca = t.type === 'poupanca'
             const amount = Number(t.valor) || 0
-            const sinal = isReceita ? '+' : '-' // podes ajustar se quiseres que poupanca mostre '-'
+            const sinal = isReceita ? '+' : '-' // se preferires '+' em poupança: isReceita || isPoupanca ? '+' : '-'
             const amountColor =
               isReceita ? 'text-emerald-400' : isPoupanca ? 'text-blue-400' : 'text-red-400'
 
             return (
-              <div key={t.id ?? `${t.data}-${t.valor}-${t.categoryId ?? ''}`} className="flex items-center justify-between p-3">
+              <div
+                key={t.id ?? `${t.data}-${t.valor}-${t.categoryId ?? ''}`}
+                className="flex items-center justify-between p-3 bg-transparent"
+              >
                 <div className="flex items-center gap-3">
                   <span className="text-sm px-2 py-0.5 rounded bg-white/5 capitalize">
                     {t.type}
@@ -184,7 +200,8 @@ export default function Transactions() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className={`font-semibold ${amountColor}`}>
-                    {sinal}{fmtEUR(amount)}
+                    {sinal}
+                    {fmtEUR(amount)}
                   </div>
                   {t.id && (
                     <button
