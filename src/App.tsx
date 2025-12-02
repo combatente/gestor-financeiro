@@ -6,14 +6,19 @@ import Dashboard from "./components/Dashboard"
 import Transactions from "./components/Transactions"
 import Budgets from "./components/Budgets"
 import Categories from "./components/Categories"
-import Analytics from "./components/Analytics"
+// IMPORTAÇÕES NOVAS (Dívida / Poupança / Resumo)
+import DebtManagement from "./components/DebtManagement"
+import SavingsGoals from "./components/SavingsGoals"
+import FinancialSummary from "./components/FinancialSummary"
 
-// Tipo para tabs (podes mover para src/types.ts)
-type TabId = "dashboard" | "transactions" | "budgets" | "categories" | "analytics"
+
+// Tipo para tabs (Substituímos 'analytics' por 'debt', 'savings' e 'summary')
+type TabId = "dashboard" | "transactions" | "budgets" | "categories" | "debt" | "savings" | "summary"
 
 export default function App() {
   const { user, loading } = useAuth()
-  const [tab, setTab] = useState<TabId>("dashboard")
+  // 💡 Mantenha "dashboard" como a aba padrão ou defina uma das novas abas
+  const [tab, setTab] = useState<TabId>("dashboard") 
 
   // Adapta o objeto do Firebase Auth para o Layout
   const userLike = user ? { email: user.email ?? null } : null
@@ -33,12 +38,16 @@ export default function App() {
   }
 
   return (
-    <Layout tab={tab} onTabChange={(id) => setTab(id)} user={userLike}>
-      {tab === "dashboard"    && <Dashboard />}
+    <Layout tab={tab} onTabChange={(id) => setTab(id as TabId)} user={userLike}>
+      {tab === "dashboard" && <Dashboard />}
       {tab === "transactions" && <Transactions />}
-      {tab === "budgets"      && <Budgets />}
-      {tab === "categories"   && <Categories />}
-      {tab === "analytics"    && <Analytics />}
+      {tab === "budgets" && <Budgets />}
+      {tab === "categories" && <Categories />}
+      
+      {/* NOVAS ABAS DE DÍVIDA / POUPANÇA / KPI */}
+      {tab === "debt" && <DebtManagement />}
+      {tab === "savings" && <SavingsGoals />}
+      {tab === "summary" && <FinancialSummary />}
     </Layout>
   )
 }

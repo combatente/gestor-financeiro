@@ -1,5 +1,5 @@
 // src/components/BudgetBar.tsx
-export function BudgetBar({
+export default function BudgetBar({
   value,   // gasto atual
   max,     // limite do orçamento
   showMarkers = true,

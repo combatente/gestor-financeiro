@@ -24,15 +24,18 @@ export type CategorySelectProps = {
  * Seletor hierárquico de categorias por tipo (receita/despesa/poupanca).
  * Usa a árvore do hook `useCategories` e devolve o `categoryId`.
  */
-export default function CategorySelect({
-  type,
-  value = '',
-  onChange,
-  placeholder = 'Seleciona categoria',
-  allowClear = true,
-  disabled = false,
-  className = '',
-}: CategorySelectProps) {
+export default function CategorySelect(props: CategorySelectProps) { // <-- Alterado para receber 'props'
+  // CORREÇÃO 1: Desestruturar props DENTRO do corpo da função para resolver o ReferenceError
+  const {
+    type,
+    value = '',
+    onChange,
+    placeholder = 'Seleciona categoria',
+    allowClear = true,
+    disabled = false,
+    className = '',
+  } = props
+
   const { tree, loading, error } = useCategories()
 
   // Achata a árvore por tipo para opções com indentação
@@ -40,6 +43,7 @@ export default function CategorySelect({
     type Node = { id?: string; name: string; icon?: string | null; children?: Node[] }
     type Opt = { id: string; label: string; depth: number }
 
+    // 'type' está garantidamente acessível aqui.
     const nodes: Node[] = (tree[type] as Node[]) ?? []
     const out: Opt[] = []
 
@@ -55,18 +59,23 @@ export default function CategorySelect({
 
     walk(nodes, 0)
     return out
-  }, [tree, type])
+  }, [tree, type]) // 'type' está garantidamente acessível aqui.
 
-  const mergedClass =
-    'border rounded px-2 py-1 bg-transparent min-w-56 ' + (className || '')
+  // CORREÇÃO 2: Remover o 'min-w-56' e garantir que o select interno tem 'w-full'
+  const baseSelectClass =
+    'border rounded px-2 py-1 bg-transparent w-full text-sm' 
+    // w-full assegura que ocupa o espaço da coluna.
 
   return (
-    <div className="inline-flex flex-col gap-1">
+    // CORREÇÃO 3: Aplicar o 'className' (que traz o 'w-full min-w-0' do componente pai) 
+    // diretamente ao DIV contentor. Mudar 'inline-flex' para 'flex'.
+    <div className={`flex flex-col gap-1 ${className}`}> 
       <select
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled || loading || !!error}
-        className={mergedClass}
+        // Aplicar as classes base que incluem 'w-full'
+        className={baseSelectClass}
         aria-label={`Selecionar categoria (${type})`}
       >
         {allowClear && <option value="">{placeholder}</option>}

@@ -1,10 +1,19 @@
-
 // src/types.ts
-export type TabId = 'dashboard' | 'transactions' | 'budgets' | 'categories' | 'analytics'
+
+// TabId CORRIGIDO: Substituímos 'analytics' por 'debt', 'savings', e 'summary'.
+export type TabId = 
+  | 'dashboard' 
+  | 'transactions' 
+  | 'budgets' 
+  | 'categories' 
+  | 'debt'     // NOVO: Dívidas
+  | 'savings'  // NOVO: Poupanças
+  | 'summary'; // NOVO: Resumo/KPIs
 
 export type Transacao = {
   id?: string
-  type: 'receita' | 'despesa' | 'divida' | 'poupanca'
+  // Transacao types: 'divida' e 'poupanca' mantidos, 'transferencia' adicionada como boa prática.
+  type: 'receita' | 'despesa' | 'divida' | 'poupanca' | 'transferencia' 
   valor: number
   data: string
   categoryId?: string | null

@@ -1,5 +1,9 @@
+// src/hooks/useBudgets.ts
 import { useEffect, useState } from 'react'
+// 💡 NOTA: Idealmente, importe estes tipos de 'src/types.ts' para evitar repetição.
+// Por agora, vamos mantê-los para não introduzir mais erros de importação.
 
+// --- TIPOS ---
 export type Transacao = {
   id?: string
   type: 'receita' | 'despesa' | 'divida' | 'poupanca'
@@ -12,18 +16,12 @@ export type Transacao = {
 export type Orcamento = {
   id?: string
   categoria: string
-  /**
-   * Pode ser:
-   *  - 'YYYY-MM'  (ex.: '2025-10')  ➜ orçamento desse mês específico
-   *  - 'mensal' | 'semanal' | 'anual'  ➜ orçamento relativo ao "hoje"
-   */
   periodo: string
-  /** Modelo novo (recomendado) */
   limite?: number
-  /** Compat: dados antigos podem usar 'valor' */
   valor?: number
   [k: string]: any
 }
+// --- FIM TIPOS ---
 
 function isYYYYMM(v: string) {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(v)
@@ -42,9 +40,6 @@ function inLastNDays(d: Date, base: Date, nDays: number) {
   return diff < nDays * ms
 }
 
-/**
- * Verifica se a transação pertence ao período do orçamento.
- */
 function pertenceAoPeriodo(t: Transacao, orc: Orcamento, hoje = new Date()) {
   const dataStr = (t.data ?? '').toString()
   if (!dataStr) return false
@@ -70,6 +65,10 @@ function pertenceAoPeriodo(t: Transacao, orc: Orcamento, hoje = new Date()) {
   // fallback: mensal corrente
   return sameMonth(dt, hoje.getFullYear(), hoje.getMonth())
 }
+
+// ❌ REMOVIDAS: Funções simuladas 'atualizarOrcamento' e 'removerOrcamento'
+//              (Elas existem e são exportadas pelo 'useFirestore.ts')
+
 
 export function useBudgets(transacoes: Transacao[], orcamentos: Orcamento[]) {
   const [alertas, setAlertas] = useState<string[]>([])
@@ -105,5 +104,10 @@ export function useBudgets(transacoes: Transacao[], orcamentos: Orcamento[]) {
     setAlertas(novos)
   }, [transacoes, orcamentos])
 
-  return { alertas }
+  // ✅ RETORNO CORRIGIDO: Retornamos apenas os 'alertas', 
+  //                        e o componente Budgets.tsx deve obter as funções de CRUD
+  //                        diretamente do useFirestore (ou através do contexto).
+  return { 
+    alertas,
+  }
 }
