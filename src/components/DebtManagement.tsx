@@ -1,194 +1,195 @@
-// src/components/DebtManagement.tsx
-import { useState } from 'react'; // Apenas useState é necessário
+// DebtManagement.tsx (Versão Final Corrigida)
+import React, { useState, useCallback, useMemo } from 'react';
 
-// 1. Definição do Tipo de Dados
-type DebtType = {
-  id: string;
-  name: string;
-  originalAmount: number;
-  currentBalance: number;
-  interestRate: number; // Ex: 0.05 para 5%
-  minimumPayment: number;
+// CORREÇÃO 1: Importar AddDebtInput e remover LocalDebtType não utilizado.
+// A Transacao é mantida. 
+// Assumimos que AddDebtInput e Transacao estão definidos e exportados corretamente em '../hooks/useFirestore'.
+import { useFirestore, type Transacao, type AddDebtInput } from '../hooks/useFirestore'; 
+import { DebtForm } from './DebtForm'; // Assegurar que este componente é o formulário pop-up
+
+
+// Componente para mostrar uma transação de histórico
+const HistoricoItem: React.FC<{ transacao: Transacao }> = ({ transacao }) => {
+    const isPayment = transacao.valor > 0;
+    const typeText = isPayment ? 'Pagamento' : 'Encargo/Criação';
+    const amountClass = isPayment ? 'text-green-500' : 'text-red-500';
+
+    return (
+        <div className="flex justify-between items-center p-2 border-b border-gray-700">
+            <div className="text-sm">
+                <span className={`font-semibold ${amountClass}`}>{isPayment ? '+' : '-'} {transacao.valor.toFixed(2)}€</span>
+                <span className="text-gray-400 ml-2">({typeText})</span>
+            </div>
+            <div className="text-xs text-gray-500">{transacao.data}</div>
+        </div>
+    );
 };
 
-// Dados simulados iniciais
-const initialDebts: DebtType[] = [
-  { 
-    id: 'd1', 
-    name: 'Empréstimo Habitação', 
-    originalAmount: 150000, 
-    currentBalance: 120000, 
-    interestRate: 0.035, 
-    minimumPayment: 650 
-  },
-  { 
-    id: 'd2', 
-    name: 'Cartão de Crédito', 
-    originalAmount: 500, 
-    currentBalance: 320, 
-    interestRate: 0.18, 
-    minimumPayment: 25 
-  },
-];
+// Componente para a Barra de Progresso da Dívida
+const DebtProgress: React.FC<{ target: number, current: number }> = ({ target, current }) => {
+    // Calculamos o montante já pago
+    const paidAmount = target - current;
+    // A percentagem é o montante pago sobre o montante alvo (montante total da dívida)
+    const percentage = target > 0 ? (paidAmount / target) * 100 : 0;
+    const roundedPercent = Math.min(100, Math.max(0, percentage)).toFixed(1);
 
-const formatCurrency = (value: number) => value.toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' });
-const formatPercent = (value: number) => (value * 100).toFixed(2) + '%';
+    return (
+        <div className="mt-2">
+            <div className="flex justify-between mb-1 text-sm">
+                <span className="text-gray-400">Progresso</span>
+                <span className="font-semibold text-orange-400">{roundedPercent}%</span>
+            </div>
+            <div className="w-full bg-gray-600 rounded-full h-2.5">
+                <div 
+                    className="bg-orange-500 h-2.5 rounded-full" 
+                    style={{ width: `${roundedPercent}%` }}
+                ></div>
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+                {paidAmount.toFixed(2)}€ pagos de {target.toFixed(2)}€
+            </div>
+        </div>
+    );
+};
 
-export default function DebtManagement() {
-  const [debts, setDebts] = useState<DebtType[]>(initialDebts);
-  const [amortizationInput, setAmortizationInput] = useState<{ [key: string]: number }>({});
 
-  // 2. Função para adicionar uma nova dívida (Modal/Form simplificado)
-  const handleAddDebt = () => {
-    const name = prompt('Nome da nova dívida:')
-    const originalAmount = prompt('Valor Original (EUR):')
-    
-    if (name && originalAmount) {
-        const amount = Number(originalAmount)
-        if (isNaN(amount) || amount <= 0) return alert('Valor inválido.')
+const DebtManagement: React.FC = () => {
+    // isFormOpen controla se o modal DebtForm é visível ou não
+    const [isFormOpen, setIsFormOpen] = useState(false); 
+    const [error, setError] = useState<string | null>(null);
 
-        const newDebt: DebtType = {
-            id: Date.now().toString(),
-            name: name,
-            originalAmount: amount,
-            currentBalance: amount,
-            interestRate: 0.05, // Valor padrão para simplificar
-            minimumPayment: amount * 0.02,
-        };
-        setDebts([...debts, newDebt]);
-    }
-  };
+    const {
+        debts,
+        transacoes,
+        addDebt,
+        clearAllFinancialData,
+    } = useFirestore();
 
-  // 3. Função para registar um pagamento/abatimento (amortização)
-  const handleAmortization = (debtId: string, value: number) => {
-    if (value <= 0 || isNaN(value)) return alert('Insira um valor positivo válido.');
-    
-    setDebts(debts.map(debt => {
-      if (debt.id === debtId) {
-        // Reduzir o saldo, garantindo que não fica negativo
-        const newBalance = Math.max(0, debt.currentBalance - value);
-        return { ...debt, currentBalance: newBalance };
-      }
-      return debt;
-    }));
+    // Lógica e cálculos
+    const totalCurrentDebt = useMemo(() => {
+        return debts.reduce((sum, debt) => sum + (debt.currentAmount || 0), 0);
+    }, [debts]);
 
-    setAmortizationInput({ ...amortizationInput, [debtId]: 0 }); // Limpar input
-    console.log(`Amortização registada para a dívida ${debtId} no valor de ${formatCurrency(value)}`); 
-  };
+    const debtTransactions = useMemo(() => {
+        // Filtra por transações de dívida e ordena da mais recente para a mais antiga
+        return transacoes
+            .filter(t => t.type === 'divida')
+            .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+    }, [transacoes]);
 
-  // 4. Função para liquidar/remover dívida
-  const handleRemoveDebt = (debtId: string) => {
-    const debt = debts.find(d => d.id === debtId);
-    if (!debt) return;
+    
+    const handleAddDebt = useCallback(
+        async (inputDebt: AddDebtInput) => { 
+            setError(null);
+            try {
+                // CORREÇÃO 2: Criar o objeto de dívida final, adicionando o campo 'status'
+                // que o useFirestore.ts exige (TS2345) e garantindo que 'category' e 'description' 
+                // cumprem a tipagem (para TS2322).
+                const debtPayload = {
+                    ...inputDebt,
+                    // Se o status estiver em falta no formulário, definimos como 'active'
+                    status: (inputDebt as any).status || 'active', 
+                    // Garante que 'category' e 'description' são strings, tratando undefined/null,
+                    // caso o DebtForm tenha devolvido-os (parte do TS2322/TS2345).
+                    category: inputDebt.category || '', 
+                    description: (inputDebt as any).description || '',
+                } as AddDebtInput; // Fazemos um cast para garantir que o tipo final é compatível
 
-    const action = debt.currentBalance > 0 
-        ? 'liquidar' 
-        : 'remover';
+                await addDebt(debtPayload); 
+                setIsFormOpen(false);
+            } catch (e) {
+                console.error('Erro ao adicionar dívida:', e);
+                setError('Erro ao adicionar dívida. Verifique os dados.');
+            }
+        },
+        [addDebt]
+    );
 
-    const confirmation = window.confirm(
-        debt.currentBalance > 0
-            ? `Tem a certeza que quer liquidar a dívida "${debt.name}"? Saldo pendente: ${formatCurrency(debt.currentBalance)}.`
-            : `Tem a certeza que quer remover a dívida liquidada "${debt.name}"?`
-    );
+    return (
+        <div className="p-4 space-y-6">
+            <h2 className="text-3xl font-bold mb-4">Gestão de Dívidas 💰</h2>
 
-    if (confirmation) {
-        setDebts(debts.filter(d => d.id !== debtId));
-        console.log(`Dívida ${debtId} (${debt.name}) ${action} e removida.`);
-    }
-  };
+            {/* Secção de Ações: Apenas Botões */}
+            <div className="flex space-x-4 mb-6">
+                <button 
+                    onClick={() => setIsFormOpen(true)} // ABRIR O MODAL
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-200"
+                >
+                    Adicionar Nova Dívida
+                </button>
+                {/* Botão para Limpar Dados (com aviso implícito) */}
+                <button 
+                    onClick={clearAllFinancialData}
+                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-200"
+                >
+                    Limpar Todos os Dados Financeiros
+                </button>
+            </div>
 
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-red-400">🚨 Gestão de Dívidas Ativas</h2>
+            {error && <p className="text-red-500 bg-red-900/30 p-3 rounded">{error}</p>}
 
-      <div className="flex justify-end">
-        <button onClick={handleAddDebt} className="bg-red-700 hover:bg-red-600 text-white font-bold py-2 px-4 rounded text-sm">
-          + Adicionar Nova Dívida
-        </button>
-      </div>
+            {/* 1. TOTAL DE DÍVIDAS */}
+            <div className="bg-gray-800 p-4 rounded-lg shadow-lg w-full">
+                <h3 className="text-xl font-semibold text-orange-400">
+                    Total de Dívidas Existentes: 
+                    <span className="text-white ml-2">
+                        {totalCurrentDebt.toFixed(2)}€
+                    </span>
+                </h3>
+            </div>
 
-      {/* Tabela de Dívidas */}
-      <div className="card p-4">
-        <h3 className="text-xl font-semibold mb-3">Lista de Dívidas</h3>
-        
-        {debts.length === 0 ? (
-            <p className="text-neutral-400 italic">Não tem dívidas ativas registadas.</p>
-        ) : (
-            <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-white/10">
-                    <thead>
-                        <tr className="text-neutral-400 text-sm">
-                            <th className="py-2 text-left">Nome</th>
-                            <th className="py-2 text-right">Saldo Atual</th>
-                            <th className="py-2 text-right">Juros (Taxa)</th>
-                            <th className="py-2 text-right">Pag. Mínimo</th>
-                            <th className="py-2 text-right">Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/10">
-                        {debts.map((debt) => {
-                            const progress = (1 - (debt.currentBalance / debt.originalAmount)) * 100;
-                            const isLiquidated = debt.currentBalance <= 0;
+            {/* 2. DÍVIDAS INDIVIDUAIS */}
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h3 className="text-xl font-semibold border-b border-gray-700 pb-3 mb-4">
+                    Dívidas Individuais
+                </h3>
+                <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                    {debts.length === 0 ? (
+                        <p className="text-gray-500">Nenhuma dívida registada.</p>
+                    ) : (
+                        debts.map(debt => (
+                            <div key={debt.id} className="bg-gray-700 p-4 rounded-lg border-l-4 border-orange-500">
+                                <h4 className="text-lg font-bold text-white">{debt.name}</h4>
+                                <p className="text-sm text-gray-400 mb-2">{debt.category || 'Não Classificado'}</p>
+                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                    <p>Montante Inicial: <span className="font-semibold">{debt.targetAmount.toFixed(2)}€</span></p>
+                                    <p>Saldo Atual: <span className="font-semibold text-red-400">{debt.currentAmount.toFixed(2)}€</span></p>
+                                    <p>Pagamento Mínimo: <span className="font-semibold">{debt.minimumPayment.toFixed(2)}€</span></p>
+                                    <p>Juro Anual: <span className="font-semibold">{debt.interestRate}%</span></p>
+                                    <p className="col-span-2">Vencimento: <span className="font-semibold">{debt.dueDate}</span></p>
+                                </div>
+                                <DebtProgress target={debt.targetAmount} current={debt.currentAmount} />
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
 
-                            return (
-                                <tr key={debt.id} className={`${isLiquidated ? 'opacity-50' : ''}`}>
-                                    <td className="py-3 font-medium">
-                                        {debt.name}
-                                        {isLiquidated && <span className="ml-2 text-green-400 text-xs">(Liquidada)</span>}
-                                        <div className="w-full bg-slate-600 rounded-full h-1.5 mt-1">
-                                            <div 
-                                                className="bg-red-500 h-1.5 rounded-full" 
-                                                style={{ width: `${Math.min(progress, 100)}%` }} 
-                                            />
-                                        </div>
-                                    </td>
-                                    <td className="py-3 text-right font-bold">{formatCurrency(debt.currentBalance)}</td>
-                                    <td className="py-3 text-right">{formatPercent(debt.interestRate)}</td>
-                                    <td className="py-3 text-right">{formatCurrency(debt.minimumPayment)}</td>
-                                    <td className="py-3 text-right whitespace-nowrap">
-                                        {!isLiquidated && (
-                                            <div className="flex items-center justify-end gap-2">
-                                                <input
-                                                    type="number"
-                                                    value={amortizationInput[debt.id] || ''}
-                                                    onChange={(e) => setAmortizationInput({ 
-                                                        ...amortizationInput, 
-                                                        [debt.id]: Number(e.target.value) 
-                                                    })}
-                                                    placeholder="Valor"
-                                                    className="input w-24 text-center p-1 text-sm bg-slate-700"
-                                                    min="1"
-                                                />
-                                                <button
-                                                    onClick={() => handleAmortization(debt.id, amortizationInput[debt.id] || 0)}
-                                                    className="btn btn-sm px-3 bg-blue-600 hover:bg-blue-500 text-white"
-                                                    disabled={!amortizationInput[debt.id] || amortizationInput[debt.id] <= 0}
-                                                >
-                                                    Abater
-                                                </button>
-                                            </div>
-                                        )}
-                                        <button 
-                                            onClick={() => handleRemoveDebt(debt.id)} 
-                                            className="btn btn-sm ml-2 px-3 text-red-400 hover:bg-red-400/10"
-                                        >
-                                            {isLiquidated ? 'Remover' : 'Liquidar'}
-                                        </button>
-                                    </td>
-                                </tr>
-                            )
-                        })}
-                    </tbody>
-                </table>
-            </div>
-        )}
-      </div>
+            {/* 3. HISTÓRICO DE ABATIMENTO/CRIAÇÃO */}
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h3 className="text-xl font-semibold border-b border-gray-700 pb-3 mb-4">
+                    Histórico de Movimentos (Pagamentos e Encargos)
+                </h3>
+                <div className="space-y-1 max-h-60 overflow-y-auto pr-2">
+                    {debtTransactions.length === 0 ? (
+                        <p className="text-gray-500">Nenhum movimento de dívida registado (Tipo 'divida').</p>
+                    ) : (
+                        debtTransactions.map(t => (
+                            <HistoricoItem key={t.id} transacao={t} />
+                        ))
+                    )}
+                </div>
+            </div>
 
-      {/* Histórico de Amortizações */}
-      <div className="pt-4 border-t border-white/10">
-        <h3 className="text-xl font-semibold mb-3">Histórico de Abatimentos (Extraordinários)</h3>
-        <p className="text-sm text-neutral-400 italic">Esta secção requer a integração com um histórico de transações.</p>
-      </div>
-    </div>
-  );
-}
+            {/* Modal de Adicionar Dívida - Só aparece se isFormOpen for true */}
+            {isFormOpen && (
+                <DebtForm
+                    onClose={() => setIsFormOpen(false)}
+                    onSubmit={handleAddDebt} 
+                />
+            )}
+        </div>
+    );
+};
+
+export default DebtManagement;
