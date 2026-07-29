@@ -430,7 +430,8 @@ export function useFirestore(): FirestoreHookResult {
                 const descricaoRaw = (t.descricao ?? t.description ?? '') as string
                 const descricao = descricaoRaw.trim().slice(0, 200) || undefined
                 const debtId = t.debtId ? String(t.debtId) : undefined
-                const goalId = t.goalId ? String(t.goalId) : undefined 
+                const goalId = t.goalId ? String(t.goalId) : undefined
+                const pessoa = t.pessoa ? String(t.pessoa).trim() : undefined
 
                 if (!['receita', 'despesa', 'divida', 'poupanca'].includes(type))
                     throw new Error('Tipo inválido.')
@@ -445,7 +446,8 @@ export function useFirestore(): FirestoreHookResult {
                     categoryId: categoryId ?? null,
                     descricao: descricao ?? null,
                     debtId: debtId ?? null,
-                    goalId: goalId ?? null, 
+                    goalId: goalId ?? null,
+                    pessoa: pessoa ?? null,
                     createdAt: serverTimestamp(),
                 })
             } catch (e: any) {

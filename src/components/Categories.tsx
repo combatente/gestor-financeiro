@@ -1,280 +1,314 @@
-// src/components/Categories.tsx
 import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Tag, Plus, Trash2, Power, RefreshCw } from 'lucide-react'
 import { EmojiPicker } from './EmojiPicker'
 import { ColorPicker } from './ColorPicker'
 import { useCategories } from '../hooks/useCategories'
 import type { CategoryType } from '../types/category'
+import { Card } from './ui/Card'
+import { EmptyState } from './ui/EmptyState'
 
-// Função auxiliar para classes CSS da Natureza (centralizada)
-// ✅ CORREÇÃO TS2345: Aceitar explicitamente 'null' no tipo
-const getNatureClasses = (nature: string | null | undefined) => {
-    if (nature === 'vontade') return 'border-amber-400 text-amber-300'
-    if (nature === 'necessidade') return 'border-emerald-400 text-emerald-300'
-    return 'border-white/10 text-neutral-400'
-}
-
-
-const types: { id: CategoryType; label: string }[] = [
-  { id: 'receita', label: 'Receitas' },
-  { id: 'despesa', label: 'Despesas' },
-  { id: 'poupanca', label: 'Poupança' },
+const TYPES: { id: CategoryType; label: string }[] = [
+  { id: 'despesa',  label: 'Despesas' },
+  { id: 'receita',  label: 'Receitas' },
+  { id: 'poupanca', label: 'Poupança' },
 ]
 
+const NATURE = {
+  necessidade: {
+    label: 'Necessidade',
+    bg: 'rgba(var(--pastel-green-bg),0.6)',
+    color: 'rgb(var(--pastel-green-text))',
+    activeBorder: 'rgba(var(--pastel-green-text),0.5)',
+  },
+  vontade: {
+    label: 'Vontade',
+    bg: 'rgba(var(--pastel-amber-bg),0.6)',
+    color: 'rgb(var(--pastel-amber-text))',
+    activeBorder: 'rgba(var(--pastel-amber-text),0.5)',
+  },
+}
+
 export default function Categories() {
-  const {
-    tree,
-    addCategory,
-    updateCategory,
-    deleteCategory,
-    loading,
-    error,
-  } = useCategories()
+  const { tree, addCategory, updateCategory, deleteCategory, loading, error } = useCategories()
 
-  const [active, setActive] = useState<CategoryType>('despesa')
+  const [active, setActive] = useState<CategoryType>('despesa')
+  const [showForm, setShowForm] = useState(false)
+  const [formError, setFormError] = useState('')
 
-  // Formulário
-  const [name, setName] = useState('')
-  const [color, setColor] = useState<string>('')
-  const [icon, setIcon] = useState<string>('')
+  // Form state
+  const [name, setName]               = useState('')
+  const [color, setColor]             = useState('')
+  const [icon, setIcon]               = useState('')
+  const [spendNature, setSpendNature] = useState<'necessidade' | 'vontade'>('necessidade')
+  const [showEmoji, setShowEmoji]     = useState(false)
+  const [showColor, setShowColor]     = useState(false)
 
-  // Natureza (dropdown) agora é gerida para ser usada com toggle buttons
-  const [spendNature, setSpendNature] = useState<'necessidade' | 'vontade' | ''>('necessidade') // Default
+  function resetForm() {
+    setName(''); setColor(''); setIcon(''); setSpendNature('necessidade')
+    setShowEmoji(false); setShowColor(false); setFormError('')
+  }
 
-  // Popovers
-  const [showEmoji, setShowEmoji] = useState(false)
-  const [showColor, setShowColor] = useState(false)
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim()) return
+    setFormError('')
+    try {
+      await addCategory({
+        type: active,
+        name: name.trim(),
+        color: color || undefined,
+        icon: icon || undefined,
+        spendNature: active === 'despesa' ? spendNature : undefined,
+      })
+      resetForm()
+      setShowForm(false)
+    } catch (err: any) {
+      setFormError(err?.message ?? 'Erro ao adicionar categoria')
+    }
+  }
 
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault()
-    if (!name.trim()) return
+  const renderList = (nodes: typeof tree['despesa']) => {
+    if (nodes.length === 0) {
+      return (
+        <EmptyState icon={Tag} title="Sem categorias"
+          description="Clique em 'Nova Categoria' para adicionar a primeira." />
+      )
+    }
+    return (
+      <div className="space-y-2">
+        {nodes.map(n => {
+          const isActive = n.active ?? true
+          const nat = n.type === 'despesa'
+            ? NATURE[n.spendNature as 'necessidade' | 'vontade'] ?? null
+            : null
 
-    try {
-      await addCategory({
-        type: active,
-        name: name.trim(),
-        color: color || undefined,
-        icon: icon || undefined,
-        // Garante que o valor não é vazio para despesa
-        spendNature: active === 'despesa' ? (spendNature || 'necessidade') : undefined,
-      })
-      // Reset
-      setName('')
-      setColor('')
-      setIcon('')
-      setSpendNature('necessidade') // Reset para o valor default
-      setShowEmoji(false)
-      setShowColor(false)
-    } catch (err: any) {
-      alert(err?.message ?? 'Erro ao adicionar categoria')
-    }
-  }
+          return (
+            <motion.div key={n.id ?? `${n.type}_${n.slug}`}
+              layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: isActive ? 1 : 0.4, y: 0 }}
+              className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[rgba(var(--border),var(--border-alpha))] bg-[rgba(var(--surface-2),0.35)] hover:bg-[rgba(var(--surface-2),0.65)] transition-colors"
+            >
+              {/* Left: dot + name + badge */}
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-3 h-3 rounded-full flex-shrink-0 ring-2 ring-black/20"
+                  style={{ background: n.color || 'rgb(var(--text-muted))' }} />
+                <span className="font-medium text-sm text-[rgb(var(--text))] truncate">
+                  {n.icon ? `${n.icon} ` : ''}{n.name}
+                </span>
+                {nat && (
+                  <span className="hidden sm:inline-flex text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0"
+                    style={{ background: nat.bg, color: nat.color }}>
+                    {nat.label}
+                  </span>
+                )}
+              </div>
 
-  // Render lista
-  const renderList = (nodes: typeof tree['despesa']) => (
-    <ul className="pl-0">
-      {nodes.map((n) => (
-        <li key={n.id ?? `${n.type}_${n.slug}`} className="py-2">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: n.color || '#64748b' }}
-              />
-              <span className="font-medium">
-                {n.icon ? `${n.icon} ` : ''}
-                {n.name}
-              </span>
+              {/* Right: actions */}
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {n.type === 'despesa' && (
+                  <button title={`Alternar para ${n.spendNature === 'vontade' ? 'Necessidade' : 'Vontade'}`}
+                    onClick={() => updateCategory(n.id!, {
+                      spendNature: n.spendNature === 'vontade' ? 'necessidade' : 'vontade',
+                    })}
+                    className="btn btn-sm btn-ghost">
+                    <RefreshCw size={12} />
+                  </button>
+                )}
+                <button title={isActive ? 'Desativar' : 'Ativar'}
+                  onClick={() => updateCategory(n.id!, { active: !isActive })}
+                  className="btn btn-sm btn-ghost">
+                  <Power size={12} className={isActive ? 'text-emerald-400' : 'text-[rgb(var(--text-muted))]'} />
+                </button>
+                <button title="Remover categoria"
+                  onClick={async () => {
+                    if (!confirm(`Remover "${n.name}"?`)) return
+                    try { await deleteCategory(n.id!) }
+                    catch (e: any) { alert(e?.message ?? 'Não foi possível remover.') }
+                  }}
+                  className="btn btn-sm btn-danger">
+                  <Trash2 size={12} />
+                </button>
+              </div>
 
-              {/* Badge Natureza apenas para despesas (agora usa a função auxiliar) */}
-              {n.type === 'despesa' && (
-                <span
-                  className={
-                    'text-[10px] px-1.5 py-0.5 rounded border ' +
-                    getNatureClasses(n.spendNature)
-                  }
-                >
-                  {n.spendNature
-                    ? n.spendNature === 'necessidade'
-                      ? 'Necessidade'
-                      : 'Vontade'
-                    : '—'}
-                </span>
-              )}
-            </div>
+              {/* Children */}
+              {n.children.length > 0 && (
+                <div className="pl-6 border-l border-[rgba(var(--border),var(--border-alpha))] mt-2 space-y-2 col-span-full">
+                  {renderList(n.children)}
+                </div>
+              )}
+            </motion.div>
+          )
+        })}
+      </div>
+    )
+  }
 
-            <div className="flex items-center gap-2 text-sm">
-              <button
-                onClick={() => updateCategory(n.id!, { active: !(n.active ?? true) })}
-                className="px-2 py-1 border rounded hover:bg-white/5 whitespace-nowrap"
-              >
-                {(n.active ?? true) ? 'Desativar' : 'Ativar'}
-              </button>
+  return (
+    <div className="space-y-6">
+      {/* Page header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-[rgb(var(--text))]">Categorias</h1>
+          <p className="text-sm text-[rgb(var(--text-muted))] mt-0.5">
+            Organize e classifique as suas transações
+          </p>
+        </div>
+        <button className="btn btn-primary" onClick={() => { resetForm(); setShowForm(v => !v) }}>
+          <Plus size={16} />
+          Nova Categoria
+        </button>
+      </div>
 
-              {/* Alternar natureza apenas para despesas */}
-              {n.type === 'despesa' && (
-                <button
-                  onClick={() =>
-                    updateCategory(n.id!, {
-                      spendNature: n.spendNature === 'vontade' ? 'necessidade' : 'vontade',
-                    })
-                  }
-                  className="px-2 py-1 border rounded hover:bg-white/5 whitespace-nowrap"
-                >
-                  {n.spendNature === 'vontade' ? '→ Necessidade' : '→ Vontade'}
-                </button>
-              )}
+      {/* Add Form */}
+      <AnimatePresence>
+        {showForm && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+            <Card>
+              <p className="text-xs font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))] mb-4">
+                Nova categoria · {TYPES.find(t => t.id === active)?.label}
+              </p>
+              <form onSubmit={handleAdd} className="space-y-4">
+                <div className="flex flex-wrap gap-3 items-end">
+                  {/* Name */}
+                  <div className="flex-1 min-w-[180px] space-y-1">
+                    <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Nome *</label>
+                    <input className="input" value={name}
+                      onChange={e => setName(e.target.value)} placeholder="Ex: Alimentação" required />
+                  </div>
 
-              <button
-                onClick={async () => {
-                  const ok = confirm(`Remover "${n.name}"?`)
-                  if (!ok) return
-                  try {
-                    await deleteCategory(n.id!)
-                  } catch (e: any) {
-                    alert(e?.message ?? 'Não foi possível remover.')
-                  }
-                }}
-                className="px-2 py-1 border rounded text-red-400 hover:bg-red-400/10 whitespace-nowrap"
-              >
-                Remover
-              </button>
-            </div>
-          </div>
+                  {/* Nature toggle (despesa only) */}
+                  {active === 'despesa' && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Natureza</label>
+                      <div className="inline-flex rounded-xl overflow-hidden border border-[rgba(var(--border),var(--border-alpha))]">
+                        {(['necessidade', 'vontade'] as const).map(n => (
+                          <button key={n} type="button" onClick={() => setSpendNature(n)}
+                            className="px-3 py-2 text-xs font-medium transition-colors"
+                            style={spendNature === n
+                              ? { background: NATURE[n].bg, color: NATURE[n].color }
+                              : { color: 'rgb(var(--text-muted))' }}>
+                            {NATURE[n].label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-          {n.children.length > 0 && (
-            <div className="pl-4 border-l border-white/10 mt-2">{renderList(n.children)}</div>
-          )}
-        </li>
-      ))}
-    </ul>
-  )
+                  {/* Emoji picker */}
+                  <div className="space-y-1 relative">
+                    <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Ícone</label>
+                    <button type="button"
+                      onClick={() => { setShowEmoji(v => !v); setShowColor(false) }}
+                      className="input !w-auto flex items-center gap-2 cursor-pointer">
+                      {icon
+                        ? <span className="text-lg leading-none">{icon}</span>
+                        : <span className="text-[rgb(var(--text-muted))] text-xs">Selecionar</span>}
+                    </button>
+                    {showEmoji && (
+                      <div className="absolute z-30 top-full mt-1">
+                        <EmojiPicker value={icon}
+                          onChange={e => { setIcon(e); setShowEmoji(false) }}
+                          onClose={() => setShowEmoji(false)} />
+                      </div>
+                    )}
+                  </div>
 
-  return (
-    <section className="space-y-6">
-      <header className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">🏷️ Categorias</h2>
-        <nav className="flex gap-2">
-          {types.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => {
-                setActive(t.id)
-                setSpendNature('necessidade') // Reset ao mudar de tab
-              }}
-              className={`px-3 py-1 rounded border ${
-                active === t.id ? 'border-blue-500 text-blue-400' : 'border-white/10 text-neutral-300'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-      </header>
+                  {/* Color picker */}
+                  <div className="space-y-1 relative">
+                    <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Cor</label>
+                    <button type="button"
+                      onClick={() => { setShowColor(v => !v); setShowEmoji(false) }}
+                      className="input !w-auto flex items-center gap-2 cursor-pointer">
+                      <span className="w-4 h-4 rounded-full ring-1 ring-black/20 flex-shrink-0"
+                        style={{ background: color || 'rgb(var(--text-muted))' }} />
+                      <span className="text-xs text-[rgb(var(--text-muted))]">{color || 'Cor'}</span>
+                    </button>
+                    {showColor && (
+                      <div className="absolute z-30 top-full mt-1">
+                        <ColorPicker value={color}
+                          onChange={c => { setColor(c); setShowColor(false) }}
+                          onClose={() => setShowColor(false)} />
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-      {/* Formulário */}
-      <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-3 relative">
-        {/* Nome */}
-        <div className="flex flex-col">
-          <label className="text-sm text-neutral-400">Nome</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Ex.: Alimentação"
-            className="input"
-            required
-          />
-        </div>
+                {formError && (
+                  <p className="text-xs px-3 py-2 rounded-lg"
+                    style={{ background: 'rgba(var(--pastel-red-bg),0.5)', color: 'rgb(var(--pastel-red-text))' }}>
+                    {formError}
+                  </p>
+                )}
 
-        {/* Natureza apenas para despesas (AGORA COM TOGGLE BUTTONS) */}
-        {active === 'despesa' && (
-          <div className="flex flex-col">
-            <label className="text-sm text-neutral-400">Natureza</label>
-            <div className="flex gap-2">
-                <button
-                    type="button"
-                    onClick={() => setSpendNature('necessidade')}
-                    className={`px-3 py-1 rounded border text-sm ${
-                        spendNature === 'necessidade' ? 'border-emerald-500 text-emerald-400' : 'border-white/10 text-neutral-300'
-                    }`}
-                >
-                    Necessidade
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setSpendNature('vontade')}
-                    className={`px-3 py-1 rounded border text-sm ${
-                        spendNature === 'vontade' ? 'border-amber-500 text-amber-400' : 'border-white/10 text-neutral-300'
-                    }`}
-                >
-                    Vontade
-                </button>
-            </div>
-            {/* 💡 Nota: Mantenho o nome da função handleAdd, mas o tipo de evento deve ser React.FormEvent */}
-          </div>
-        )}
-        
-        {/* Emoji */}
-        <div className="flex flex-col relative">
-          <label className="text-sm text-neutral-400">Ícone (emoji)</label>
-          <button
-            type="button"
-            onClick={() => {
-              setShowEmoji((s) => !s)
-              setShowColor(false)
-            }}
-            className="border rounded px-2 py-1 bg-transparent w-24 text-left"
-          >
-            {icon ? <span className="text-lg">{icon}</span> : <span className="text-neutral-500 text-sm">Selecionar</span>}
-          </button>
-          {icon && (
-            <button type="button" onClick={() => setIcon('')} className="mt-1 text-xs text-neutral-400 hover:text-neutral-200">
-              Limpar
-            </button>
-          )}
-          {showEmoji && (
-            <div className="absolute z-20 mt-1">
-              <EmojiPicker value={icon} onChange={(e) => setIcon(e)} onClose={() => setShowEmoji(false)} />
-            </div>
-          )}
-        </div>
+                <div className="flex items-center gap-2">
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={loading || !name.trim()}>
+                    <Plus size={14} />
+                    {loading ? 'A adicionar…' : 'Adicionar'}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm"
+                    onClick={() => { resetForm(); setShowForm(false) }}>
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* Cor */}
-        <div className="flex flex-col relative">
-          <label className="text-sm text-neutral-400">Cor</label>
-          <button
-            type="button"
-            onClick={() => {
-              setShowColor((s) => !s)
-              setShowEmoji(false)
-            }}
-            className="border rounded px-2 py-1 bg-transparent w-28 flex items-center gap-2"
-          >
-            <span className="inline-block h-4 w-4 rounded ring-1 ring-black/20" style={{ background: color || 'transparent' }} />
-            <span className={`text-sm ${color ? '' : 'text-neutral-500'}`}>{color || 'Selecionar'}</span>
-          </button>
-          {color && (
-            <button type="button" onClick={() => setColor('')} className="mt-1 text-xs text-neutral-400 hover:text-neutral-200">
-              Limpar
-            </button>
-          )}
-          {showColor && (
-            <div className="absolute z-20 mt-1">
-              <ColorPicker value={color} onChange={(c) => setColor(c)} onClose={() => setShowColor(false)} />
-            </div>
-          )}
-        </div>
+      {/* Tab navigation + count */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-xl overflow-hidden border border-[rgba(var(--border),var(--border-alpha))]">
+          {TYPES.map(t => (
+            <button key={t.id}
+              onClick={() => { setActive(t.id); setSpendNature('necessidade') }}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                active === t.id
+                  ? 'bg-[rgba(var(--brand),0.15)] text-[rgb(var(--brand))]'
+                  : 'text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text))]'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-[rgb(var(--text-muted))]">
+          {tree[active]?.length ?? 0} {tree[active]?.length === 1 ? 'categoria' : 'categorias'}
+        </span>
+      </div>
 
-        <button type="submit" className="btn btn-primary" disabled={loading || !name.trim()}>
-          {loading ? 'A adicionar...' : 'Adicionar categoria'}
-        </button>
-      </form>
+      {error && (
+        <p className="text-xs px-3 py-2 rounded-lg"
+          style={{ background: 'rgba(var(--pastel-red-bg),0.5)', color: 'rgb(var(--pastel-red-text))' }}>
+          {error}
+        </p>
+      )}
 
-      {/* Estados */}
-      {loading ? <p className="text-neutral-400">A carregar categorias…</p> : null}
-      {error && <p className="text-red-400 text-sm">{error}</p>}
+      {/* Category list */}
+      <Card>
+        {loading ? (
+          <div className="space-y-2">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-12 rounded-xl bg-[rgba(var(--surface-2),0.5)] animate-pulse" />
+            ))}
+          </div>
+        ) : renderList(tree[active])}
+      </Card>
 
-      {/* Lista */}
-      <div className="card p-3">{renderList(tree[active])}</div>
-    </section>
-  )
+      {/* Legend for despesa */}
+      {active === 'despesa' && (
+        <div className="flex items-center gap-4 px-1">
+          <span className="text-xs text-[rgb(var(--text-muted))]">Legenda:</span>
+          {(['necessidade', 'vontade'] as const).map(n => (
+            <span key={n} className="inline-flex items-center gap-1.5 text-xs">
+              <span className="w-2 h-2 rounded-full" style={{ background: NATURE[n].color }} />
+              <span style={{ color: NATURE[n].color }}>{NATURE[n].label}</span>
+            </span>
+          ))}
+          <span className="text-xs text-[rgb(var(--text-muted))] ml-2">
+            · Usado na análise 50/30/20 do Dashboard
+          </span>
+        </div>
+      )}
+    </div>
+  )
 }

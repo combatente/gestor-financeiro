@@ -1,190 +1,157 @@
-// DebtForm.tsx — versão corrigida
-import React, { useState } from 'react';
-// Importamos AddDebtInput e LocalDebtType (se AddDebtInput for Omit<LocalDebtType, 'id' | 'createdAt'>)
-// Assumimos que AddDebtInput e LocalDebtType estão definidos em '../hooks/useFirestore'
-import type { AddDebtInput } from '../hooks/useFirestore';
+import { useState } from 'react'
+import { X, CreditCard } from 'lucide-react'
+import { motion } from 'framer-motion'
+import type { AddDebtInput } from '../hooks/useFirestore'
 
-// A interface DebtFormProps usa AddDebtInput para garantir o tipo de dados esperado.
 interface DebtFormProps {
-    onClose: () => void;
-    // O onSubmit deve aceitar o AddDebtInput e pode retornar uma Promessa
-    onSubmit: (debt: AddDebtInput) => Promise<void>; 
+  onClose: () => void
+  onSubmit: (debt: AddDebtInput) => Promise<void>
 }
 
-export const DebtForm = ({ onClose, onSubmit }: DebtFormProps) => { 
-    // Campos de texto simples
-    const [name, setName] = useState('');
-    const [description, setDescription] = useState('');
-    const [category, setCategory] = useState('Empréstimo Pessoal');
-    
-    // States para Montantes e Taxas (melhor gerir como strings para inputs numéricos)
-    const [initialDebtAmountInput, setInitialDebtAmountInput] = useState('');
-    const [currentDebtAmountInput, setCurrentDebtAmountInput] = useState(''); 
-    const [interestRateInput, setInterestRateInput] = useState('');
-    const [minPaymentInput, setMinPaymentInput] = useState('');
-    const [targetDate, setTargetDate] = useState('');
+const CATEGORIES = [
+  'Crédito Habitação',
+  'Empréstimo Pessoal',
+  'Cartão de Crédito',
+  'Crédito Automóvel',
+  'Outro',
+]
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+export const DebtForm = ({ onClose, onSubmit }: DebtFormProps) => {
+  const [name, setName]             = useState('')
+  const [description, setDesc]      = useState('')
+  const [category, setCategory]     = useState(CATEGORIES[1])
+  const [initialInput, setInitial]  = useState('')
+  const [currentInput, setCurrent]  = useState('')
+  const [interestInput, setInterest]= useState('')
+  const [minPayInput, setMinPay]    = useState('')
+  const [dueDate, setDueDate]       = useState('')
+  const [err, setErr]               = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
-        // 1. Conversão e Leitura dos Inputs
-        // Substituir vírgula por ponto para garantir que o Number() funciona corretamente
-        const initialDebtAmount = Number(initialDebtAmountInput.replace(/,/g, '.'));
-        const currentDebtAmount = Number(currentDebtAmountInput.replace(/,/g, '.')); 
-        const interestRatePercent = Number(interestRateInput.replace(/,/g, '.'));
-        const minPayment = Number(minPaymentInput.replace(/,/g, '.'));
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const initial  = Number(initialInput.replace(',', '.'))
+    const current  = Number(currentInput.replace(',', '.'))
+    const interest = Number(interestInput.replace(',', '.'))
+    const minPay   = Number(minPayInput.replace(',', '.'))
 
-        // 2. Validação dos Campos
-        if (
-            !name.trim() || // Valida nome (e remove espaços em branco)
-            !category.trim() || // Valida categoria
-            isNaN(initialDebtAmount) || initialDebtAmount <= 0 ||
-            isNaN(currentDebtAmount) || currentDebtAmount < 0 || // Saldo pode ser 0 (dívida paga)
-            currentDebtAmount > initialDebtAmount || // CRUCIAL: Saldo atual não pode exceder o Montante Inicial
-            isNaN(interestRatePercent) ||
-            isNaN(minPayment) || minPayment < 0 ||
-            !targetDate // Valida data
-        ) {
-            alert('Preencha todos os campos corretamente. Verifique se: 1) O Montante Inicial é positivo. 2) O Saldo Atual é não negativo e não excede o Montante Inicial. 3) O Nome e a Data estão preenchidos.');
-            return;
-        }
+    if (!name.trim() || !dueDate || isNaN(initial) || initial <= 0 ||
+        isNaN(current) || current < 0 || current > initial ||
+        isNaN(interest) || isNaN(minPay) || minPay < 0) {
+      setErr('Verifique todos os campos. O saldo atual não pode exceder o montante inicial.')
+      return
+    }
 
-        // Determinar o status da dívida com base no Saldo Atual
-        const statusValue = currentDebtAmount <= 0 ? 'paid' : 'active';
+    setErr('')
+    setSubmitting(true)
+    try {
+      await onSubmit({
+        name: name.trim(),
+        description: description.trim() || null,
+        category: category || null,
+        targetAmount: initial,
+        currentAmount: current,
+        interestRate: interest,
+        minimumPayment: minPay,
+        dueDate,
+        status: current <= 0 ? 'paid' : 'active',
+      })
+    } catch {
+      setErr('Erro ao guardar. Tente novamente.')
+      setSubmitting(false)
+    }
+  }
 
-        // 3. Objeto de Dívida com Nomenclatura Sincronizada (Usando AddDebtInput)
-        const newDebt: AddDebtInput = {
-            name: name.trim(),
-            description: description.trim() || null, 
-            category: category.trim() || null,
-            targetAmount: initialDebtAmount, // Montante Inicial
-            currentAmount: currentDebtAmount, // Saldo Atual
-            interestRate: interestRatePercent, // Juro
-            minimumPayment: minPayment,
-            dueDate: targetDate, // Mapeamento para dueDate
-            // CORREÇÃO CRÍTICA: Incluímos 'status' que é um campo esperado por AddDebtInput
-            status: statusValue, 
-        };
-
-        // 4. Envio e Fecho
-        onSubmit(newDebt);
-        // Opcionalmente, pode fechar o modal aqui se não estiver à espera que o onSubmit trate disso
-        // onClose(); 
-    };
-
-    // Estilos Tailwind CSS (Apenas Placeholder - Adapte aos seus ficheiros CSS)
-    const inputClasses = "w-full p-2 border border-gray-600 bg-gray-700 rounded text-white focus:ring-orange-500 focus:border-orange-500";
-    const labelClasses = "block text-sm font-medium text-gray-300 mt-3";
-    const buttonClasses = "py-2 px-4 rounded font-bold transition duration-200";
-
-    return (
-        // Modal Backdrop e Content (usando classes genéricas para o exemplo)
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 modal-backdrop">
-            <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md modal-content">
-                <h3 className="text-2xl font-bold text-white mb-4">Adicionar Nova Dívida</h3>
-                
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    
-                    <div>
-                        <label className={labelClasses}>Nome da Dívida</label>
-                        <input className={inputClasses} value={name} onChange={e => setName(e.target.value)} required />
-                    </div>
-
-                    <div>
-                        <label className={labelClasses}>Descrição (Opcional)</label>
-                        <input className={inputClasses} value={description} onChange={e => setDescription(e.target.value)} />
-                    </div>
-
-                    <div>
-                        <label className={labelClasses}>Categoria</label>
-                        <select className={inputClasses} value={category} onChange={e => setCategory(e.target.value)} required>
-                            <option>Crédito Habitação</option>
-                            <option>Empréstimo Pessoal</option>
-                            <option>Cartão de Crédito</option>
-                            <option>Outro</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className={labelClasses}>Montante Inicial (Total Emprestado - €)</label>
-                        <input 
-                            type="number" 
-                            step="0.01" 
-                            className={inputClasses}
-                            value={initialDebtAmountInput} 
-                            onChange={e => setInitialDebtAmountInput(e.target.value)} 
-                            required 
-                            min="0.01"
-                        />
-                    </div>
-
-                    <div>
-                        <label className={labelClasses}>Saldo Atual (€)</label> 
-                        <input 
-                            type="number" 
-                            step="0.01" 
-                            className={inputClasses}
-                            value={currentDebtAmountInput} 
-                            onChange={e => setCurrentDebtAmountInput(e.target.value)} 
-                            required 
-                            min="0"
-                        />
-                    </div>
-
-                    <div>
-                        <label className={labelClasses}>Taxa de Juro (%)</label>
-                        <input 
-                            type="number" 
-                            step="0.01" 
-                            className={inputClasses}
-                            value={interestRateInput} 
-                            onChange={e => setInterestRateInput(e.target.value)} 
-                            required 
-                            min="0"
-                        />
-                    </div>
-
-                    <div>
-                        <label className={labelClasses}>Pagamento Mínimo (€)</label>
-                        <input 
-                            type="number" 
-                            step="0.01" 
-                            className={inputClasses}
-                            value={minPaymentInput} 
-                            onChange={e => setMinPaymentInput(e.target.value)} 
-                            required 
-                            min="0"
-                        />
-                    </div>
-
-                    <div>
-                        <label className={labelClasses}>Data Vencimento (Alvo)</label>
-                        <input 
-                            type="date" 
-                            className={inputClasses}
-                            value={targetDate} 
-                            onChange={e => setTargetDate(e.target.value)} 
-                            required 
-                        />
-                    </div>
-
-                    <div className="flex justify-end space-x-3 pt-4 form-actions">
-                        <button 
-                            type="button" 
-                            onClick={onClose}
-                            className={`${buttonClasses} bg-gray-600 hover:bg-gray-500 text-white`}
-                        >
-                            Cancelar
-                        </button>
-                        <button 
-                            type="submit" 
-                            className={`${buttonClasses} bg-orange-600 hover:bg-orange-700 text-white primary`}
-                        >
-                            Registar Dívida
-                        </button>
-                    </div>
-                </form>
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto"
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="card w-full max-w-md my-4 shadow-2xl" style={{ background: 'rgb(var(--surface))' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: 'rgba(var(--pastel-red-bg),0.6)' }}>
+              <CreditCard size={16} style={{ color: 'rgb(var(--pastel-red-text))' }} />
             </div>
+            <h3 className="font-semibold text-[rgb(var(--text))]">Registar Dívida</h3>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}><X size={16} /></button>
         </div>
-    );
-};
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {/* Name */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Nome da Dívida *</label>
+            <input className="input" value={name} onChange={e => setName(e.target.value)}
+              placeholder="Ex: Empréstimo pessoal BPI" required />
+          </div>
+
+          {/* Category */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Categoria</label>
+            <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
+              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Amounts */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Montante Inicial (€) *</label>
+              <input className="input" inputMode="decimal" value={initialInput}
+                onChange={e => setInitial(e.target.value)} placeholder="Ex: 15 000" required />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Saldo Atual (€) *</label>
+              <input className="input" inputMode="decimal" value={currentInput}
+                onChange={e => setCurrent(e.target.value)} placeholder="Ex: 12 000" required />
+            </div>
+          </div>
+
+          {/* Interest + min payment */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Taxa de Juro (%) *</label>
+              <input className="input" inputMode="decimal" value={interestInput}
+                onChange={e => setInterest(e.target.value)} placeholder="Ex: 4.5" required />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Pagamento Mínimo (€) *</label>
+              <input className="input" inputMode="decimal" value={minPayInput}
+                onChange={e => setMinPay(e.target.value)} placeholder="Ex: 200" required />
+            </div>
+          </div>
+
+          {/* Due date */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Data de Vencimento *</label>
+            <input className="input" type="date" value={dueDate}
+              onChange={e => setDueDate(e.target.value)} required />
+          </div>
+
+          {/* Description (optional) */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-[rgb(var(--text-muted))]">Observações (opcional)</label>
+            <input className="input" value={description} onChange={e => setDesc(e.target.value)}
+              placeholder="Ex: Banco BPI, prestação dia 15" />
+          </div>
+
+          {err && (
+            <p className="text-xs px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(var(--pastel-red-bg),0.5)', color: 'rgb(var(--pastel-red-text))' }}>
+              {err}
+            </p>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button type="button" className="btn btn-secondary flex-1" onClick={onClose}>Cancelar</button>
+            <button type="submit" className="btn btn-primary flex-1" disabled={submitting}>
+              {submitting ? 'A guardar…' : 'Registar Dívida'}
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  )
+}

@@ -1,195 +1,296 @@
-// DebtManagement.tsx (Versão Final Corrigida)
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { CreditCard, Plus, AlertTriangle, TrendingDown, Calendar, Percent, Clock } from 'lucide-react'
+import { useFirestore, type AddDebtInput } from '../hooks/useFirestore'
+import { DebtForm } from './DebtForm'
+import { Card } from './ui/Card'
+import { EmptyState } from './ui/EmptyState'
 
-// CORREÇÃO 1: Importar AddDebtInput e remover LocalDebtType não utilizado.
-// A Transacao é mantida. 
-// Assumimos que AddDebtInput e Transacao estão definidos e exportados corretamente em '../hooks/useFirestore'.
-import { useFirestore, type Transacao, type AddDebtInput } from '../hooks/useFirestore'; 
-import { DebtForm } from './DebtForm'; // Assegurar que este componente é o formulário pop-up
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const eur = (v: number) =>
+  (Number.isFinite(v) ? v : 0).toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' })
 
-// Componente para mostrar uma transação de histórico
-const HistoricoItem: React.FC<{ transacao: Transacao }> = ({ transacao }) => {
-    const isPayment = transacao.valor > 0;
-    const typeText = isPayment ? 'Pagamento' : 'Encargo/Criação';
-    const amountClass = isPayment ? 'text-green-500' : 'text-red-500';
+const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
+  'Crédito Habitação':   { bg: 'rgba(var(--pastel-blue-bg),0.5)',   text: 'rgb(var(--pastel-blue-text))' },
+  'Empréstimo Pessoal':  { bg: 'rgba(var(--pastel-purple-bg),0.5)', text: 'rgb(var(--pastel-purple-text))' },
+  'Cartão de Crédito':   { bg: 'rgba(var(--pastel-red-bg),0.5)',    text: 'rgb(var(--pastel-red-text))' },
+  'Crédito Automóvel':   { bg: 'rgba(var(--pastel-amber-bg),0.5)',  text: 'rgb(var(--pastel-amber-text))' },
+}
 
-    return (
-        <div className="flex justify-between items-center p-2 border-b border-gray-700">
-            <div className="text-sm">
-                <span className={`font-semibold ${amountClass}`}>{isPayment ? '+' : '-'} {transacao.valor.toFixed(2)}€</span>
-                <span className="text-gray-400 ml-2">({typeText})</span>
-            </div>
-            <div className="text-xs text-gray-500">{transacao.data}</div>
+function getCategoryStyle(cat: string | null) {
+  return CATEGORY_COLORS[cat ?? ''] ?? {
+    bg:   'rgba(var(--surface-2),0.6)',
+    text: 'rgb(var(--text-muted))',
+  }
+}
+
+function debtStatus(debt: { currentAmount: number; targetAmount: number; dueDate?: string }) {
+  const pct = debt.targetAmount > 0
+    ? ((debt.targetAmount - debt.currentAmount) / debt.targetAmount) * 100
+    : 0
+  const isPaid = debt.currentAmount <= 0
+
+  if (isPaid) return { label: 'Paga', color: 'rgb(var(--pastel-green-text))', bg: 'rgba(var(--pastel-green-bg),0.5)' }
+
+  if (debt.dueDate) {
+    const days = Math.ceil((new Date(debt.dueDate).getTime() - Date.now()) / 86_400_000)
+    if (days < 0)  return { label: 'Vencida', color: 'rgb(var(--pastel-red-text))', bg: 'rgba(var(--pastel-red-bg),0.5)' }
+    if (days < 30) return { label: `${days}d restantes`, color: 'rgb(var(--pastel-amber-text))', bg: 'rgba(var(--pastel-amber-bg),0.5)' }
+  }
+
+  if (pct >= 75) return { label: `${pct.toFixed(0)}% pago`, color: 'rgb(var(--pastel-green-text))', bg: 'rgba(var(--pastel-green-bg),0.5)' }
+  return { label: `${pct.toFixed(0)}% pago`, color: 'rgb(var(--pastel-blue-text))', bg: 'rgba(var(--pastel-blue-bg),0.5)' }
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function DebtManagement() {
+  const { debts, transacoes, addDebt } = useFirestore()
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [formError, setFormError]   = useState('')
+
+  const totalDebt = useMemo(() =>
+    debts.reduce((s, d) => s + (d.currentAmount || 0), 0), [debts])
+
+  const totalOriginal = useMemo(() =>
+    debts.reduce((s, d) => s + (d.targetAmount || 0), 0), [debts])
+
+  const totalPaid = totalOriginal - totalDebt
+
+  const debtTx = useMemo(() =>
+    transacoes
+      .filter(t => t.type === 'divida')
+      .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()),
+    [transacoes])
+
+  const handleAddDebt = useCallback(async (input: AddDebtInput) => {
+    setFormError('')
+    try {
+      await addDebt({ ...input, status: (input as any).status || 'active' })
+      setIsFormOpen(false)
+    } catch (e) {
+      setFormError('Erro ao adicionar dívida. Verifique os dados.')
+      throw e
+    }
+  }, [addDebt])
+
+  const overallPct = totalOriginal > 0 ? (totalPaid / totalOriginal) * 100 : 0
+
+  return (
+    <div className="space-y-6">
+      {/* Form modal */}
+      <AnimatePresence>
+        {isFormOpen && (
+          <DebtForm onClose={() => setIsFormOpen(false)} onSubmit={handleAddDebt} />
+        )}
+      </AnimatePresence>
+
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-[rgb(var(--text))]">Dívidas</h1>
+          <p className="text-sm text-[rgb(var(--text-muted))] mt-0.5">
+            Controle e acompanhe o pagamento das suas dívidas
+          </p>
         </div>
-    );
-};
+        <button className="btn btn-primary" onClick={() => setIsFormOpen(true)}>
+          <Plus size={16} /> Nova Dívida
+        </button>
+      </div>
 
-// Componente para a Barra de Progresso da Dívida
-const DebtProgress: React.FC<{ target: number, current: number }> = ({ target, current }) => {
-    // Calculamos o montante já pago
-    const paidAmount = target - current;
-    // A percentagem é o montante pago sobre o montante alvo (montante total da dívida)
-    const percentage = target > 0 ? (paidAmount / target) * 100 : 0;
-    const roundedPercent = Math.min(100, Math.max(0, percentage)).toFixed(1);
+      {formError && (
+        <p className="text-xs px-3 py-2 rounded-lg"
+          style={{ background: 'rgba(var(--pastel-red-bg),0.5)', color: 'rgb(var(--pastel-red-text))' }}>
+          {formError}
+        </p>
+      )}
 
-    return (
-        <div className="mt-2">
-            <div className="flex justify-between mb-1 text-sm">
-                <span className="text-gray-400">Progresso</span>
-                <span className="font-semibold text-orange-400">{roundedPercent}%</span>
+      {/* KPI cards */}
+      {debts.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card className="kpi-red flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={14} style={{ color: 'rgb(var(--pastel-red-text))' }} />
+              <span className="text-xs font-semibold text-[rgb(var(--text-muted))] uppercase tracking-wider">
+                Saldo em Dívida
+              </span>
             </div>
-            <div className="w-full bg-gray-600 rounded-full h-2.5">
-                <div 
-                    className="bg-orange-500 h-2.5 rounded-full" 
-                    style={{ width: `${roundedPercent}%` }}
-                ></div>
+            <div className="text-2xl font-bold" style={{ color: 'rgb(var(--pastel-red-text))' }}>
+              {eur(totalDebt)}
             </div>
-            <div className="text-xs text-gray-500 mt-1">
-                {paidAmount.toFixed(2)}€ pagos de {target.toFixed(2)}€
+            <div className="text-xs text-[rgb(var(--text-muted))]">{debts.length} dívida{debts.length !== 1 ? 's' : ''} ativas</div>
+          </Card>
+
+          <Card className="kpi-green flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <TrendingDown size={14} style={{ color: 'rgb(var(--pastel-green-text))' }} />
+              <span className="text-xs font-semibold text-[rgb(var(--text-muted))] uppercase tracking-wider">
+                Total Pago
+              </span>
             </div>
+            <div className="text-2xl font-bold" style={{ color: 'rgb(var(--pastel-green-text))' }}>
+              {eur(totalPaid)}
+            </div>
+            <div className="text-xs text-[rgb(var(--text-muted))]">de {eur(totalOriginal)} contratados</div>
+          </Card>
+
+          {/* Overall progress */}
+          <Card className="flex flex-col gap-3">
+            <span className="text-xs font-semibold text-[rgb(var(--text-muted))] uppercase tracking-wider">
+              Progresso Global
+            </span>
+            <div className="flex items-end gap-2">
+              <span className="text-2xl font-bold text-[rgb(var(--text))]">{overallPct.toFixed(0)}%</span>
+              <span className="text-xs text-[rgb(var(--text-muted))] mb-1">pago</span>
+            </div>
+            <div className="h-2 rounded-full w-full" style={{ background: 'rgba(var(--border),0.12)' }}>
+              <div className="h-2 rounded-full transition-all duration-700"
+                style={{ width: `${overallPct}%`, background: 'rgb(var(--pastel-green-text))' }} />
+            </div>
+          </Card>
         </div>
-    );
-};
+      )}
 
+      {/* Debt cards */}
+      {debts.length === 0 ? (
+        <EmptyState icon={CreditCard} title="Sem dívidas registadas"
+          description="Clique em 'Nova Dívida' para começar a acompanhar os seus créditos." />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {debts.map((debt, idx) => {
+            const catStyle = getCategoryStyle(debt.category ?? null)
+            const paid     = Math.max(0, (debt.targetAmount || 0) - (debt.currentAmount || 0))
+            const pct      = debt.targetAmount > 0 ? Math.min(100, (paid / debt.targetAmount) * 100) : 0
+            const status   = debtStatus(debt)
+            const isPaid   = (debt.currentAmount || 0) <= 0
 
-const DebtManagement: React.FC = () => {
-    // isFormOpen controla se o modal DebtForm é visível ou não
-    const [isFormOpen, setIsFormOpen] = useState(false); 
-    const [error, setError] = useState<string | null>(null);
-
-    const {
-        debts,
-        transacoes,
-        addDebt,
-        clearAllFinancialData,
-    } = useFirestore();
-
-    // Lógica e cálculos
-    const totalCurrentDebt = useMemo(() => {
-        return debts.reduce((sum, debt) => sum + (debt.currentAmount || 0), 0);
-    }, [debts]);
-
-    const debtTransactions = useMemo(() => {
-        // Filtra por transações de dívida e ordena da mais recente para a mais antiga
-        return transacoes
-            .filter(t => t.type === 'divida')
-            .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
-    }, [transacoes]);
-
-    
-    const handleAddDebt = useCallback(
-        async (inputDebt: AddDebtInput) => { 
-            setError(null);
-            try {
-                // CORREÇÃO 2: Criar o objeto de dívida final, adicionando o campo 'status'
-                // que o useFirestore.ts exige (TS2345) e garantindo que 'category' e 'description' 
-                // cumprem a tipagem (para TS2322).
-                const debtPayload = {
-                    ...inputDebt,
-                    // Se o status estiver em falta no formulário, definimos como 'active'
-                    status: (inputDebt as any).status || 'active', 
-                    // Garante que 'category' e 'description' são strings, tratando undefined/null,
-                    // caso o DebtForm tenha devolvido-os (parte do TS2322/TS2345).
-                    category: inputDebt.category || '', 
-                    description: (inputDebt as any).description || '',
-                } as AddDebtInput; // Fazemos um cast para garantir que o tipo final é compatível
-
-                await addDebt(debtPayload); 
-                setIsFormOpen(false);
-            } catch (e) {
-                console.error('Erro ao adicionar dívida:', e);
-                setError('Erro ao adicionar dívida. Verifique os dados.');
-            }
-        },
-        [addDebt]
-    );
-
-    return (
-        <div className="p-4 space-y-6">
-            <h2 className="text-3xl font-bold mb-4">Gestão de Dívidas 💰</h2>
-
-            {/* Secção de Ações: Apenas Botões */}
-            <div className="flex space-x-4 mb-6">
-                <button 
-                    onClick={() => setIsFormOpen(true)} // ABRIR O MODAL
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-200"
-                >
-                    Adicionar Nova Dívida
-                </button>
-                {/* Botão para Limpar Dados (com aviso implícito) */}
-                <button 
-                    onClick={clearAllFinancialData}
-                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-200"
-                >
-                    Limpar Todos os Dados Financeiros
-                </button>
-            </div>
-
-            {error && <p className="text-red-500 bg-red-900/30 p-3 rounded">{error}</p>}
-
-            {/* 1. TOTAL DE DÍVIDAS */}
-            <div className="bg-gray-800 p-4 rounded-lg shadow-lg w-full">
-                <h3 className="text-xl font-semibold text-orange-400">
-                    Total de Dívidas Existentes: 
-                    <span className="text-white ml-2">
-                        {totalCurrentDebt.toFixed(2)}€
+            return (
+              <motion.div key={debt.id}
+                initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                className="card flex flex-col gap-4"
+                style={{ borderLeft: `3px solid ${catStyle.text}` }}
+              >
+                {/* Card header */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-[rgb(var(--text))] truncate">{debt.name}</h3>
+                    {debt.description && (
+                      <p className="text-xs text-[rgb(var(--text-muted))] mt-0.5 truncate">{debt.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: catStyle.bg, color: catStyle.text }}>
+                      {debt.category || 'Outro'}
                     </span>
-                </h3>
-            </div>
-
-            {/* 2. DÍVIDAS INDIVIDUAIS */}
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                <h3 className="text-xl font-semibold border-b border-gray-700 pb-3 mb-4">
-                    Dívidas Individuais
-                </h3>
-                <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                    {debts.length === 0 ? (
-                        <p className="text-gray-500">Nenhuma dívida registada.</p>
-                    ) : (
-                        debts.map(debt => (
-                            <div key={debt.id} className="bg-gray-700 p-4 rounded-lg border-l-4 border-orange-500">
-                                <h4 className="text-lg font-bold text-white">{debt.name}</h4>
-                                <p className="text-sm text-gray-400 mb-2">{debt.category || 'Não Classificado'}</p>
-                                <div className="grid grid-cols-2 gap-2 text-sm">
-                                    <p>Montante Inicial: <span className="font-semibold">{debt.targetAmount.toFixed(2)}€</span></p>
-                                    <p>Saldo Atual: <span className="font-semibold text-red-400">{debt.currentAmount.toFixed(2)}€</span></p>
-                                    <p>Pagamento Mínimo: <span className="font-semibold">{debt.minimumPayment.toFixed(2)}€</span></p>
-                                    <p>Juro Anual: <span className="font-semibold">{debt.interestRate}%</span></p>
-                                    <p className="col-span-2">Vencimento: <span className="font-semibold">{debt.dueDate}</span></p>
-                                </div>
-                                <DebtProgress target={debt.targetAmount} current={debt.currentAmount} />
-                            </div>
-                        ))
-                    )}
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: status.bg, color: status.color }}>
+                      {status.label}
+                    </span>
+                  </div>
                 </div>
-            </div>
 
-            {/* 3. HISTÓRICO DE ABATIMENTO/CRIAÇÃO */}
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                <h3 className="text-xl font-semibold border-b border-gray-700 pb-3 mb-4">
-                    Histórico de Movimentos (Pagamentos e Encargos)
-                </h3>
-                <div className="space-y-1 max-h-60 overflow-y-auto pr-2">
-                    {debtTransactions.length === 0 ? (
-                        <p className="text-gray-500">Nenhum movimento de dívida registado (Tipo 'divida').</p>
-                    ) : (
-                        debtTransactions.map(t => (
-                            <HistoricoItem key={t.id} transacao={t} />
-                        ))
-                    )}
+                {/* Key numbers */}
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                  <div className="flex flex-col">
+                    <span className="text-[rgb(var(--text-muted))] text-xs">Saldo Atual</span>
+                    <span className="font-bold" style={{ color: isPaid ? 'rgb(var(--pastel-green-text))' : 'rgb(var(--pastel-red-text))' }}>
+                      {eur(debt.currentAmount || 0)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[rgb(var(--text-muted))] text-xs">Montante Inicial</span>
+                    <span className="font-medium text-[rgb(var(--text))]">{eur(debt.targetAmount || 0)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Percent size={12} className="text-[rgb(var(--text-muted))]" />
+                    <span className="text-[rgb(var(--text-muted))] text-xs">Juro:</span>
+                    <span className="font-medium text-[rgb(var(--pastel-amber-text))]">{debt.interestRate}%</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Clock size={12} className="text-[rgb(var(--text-muted))]" />
+                    <span className="text-[rgb(var(--text-muted))] text-xs">Prestação:</span>
+                    <span className="font-medium text-[rgb(var(--text))]">{eur(debt.minimumPayment)}</span>
+                  </div>
+                  {debt.dueDate && (
+                    <div className="col-span-2 flex items-center gap-1.5">
+                      <Calendar size={12} className="text-[rgb(var(--text-muted))]" />
+                      <span className="text-[rgb(var(--text-muted))] text-xs">Vencimento:</span>
+                      <span className="font-medium text-[rgb(var(--text))]">
+                        {new Date(debt.dueDate).toLocaleDateString('pt-PT')}
+                      </span>
+                    </div>
+                  )}
                 </div>
-            </div>
 
-            {/* Modal de Adicionar Dívida - Só aparece se isFormOpen for true */}
-            {isFormOpen && (
-                <DebtForm
-                    onClose={() => setIsFormOpen(false)}
-                    onSubmit={handleAddDebt} 
-                />
-            )}
+                {/* Progress bar */}
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-[rgb(var(--text-muted))]">Progresso de amortização</span>
+                    <span className="font-semibold text-[rgb(var(--text))]">{pct.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-2 rounded-full w-full" style={{ background: 'rgba(var(--border),0.12)' }}>
+                    <div className="h-2 rounded-full transition-all duration-700"
+                      style={{ width: `${pct}%`, background: isPaid ? 'rgb(var(--pastel-green-text))' : catStyle.text }} />
+                  </div>
+                  <div className="text-xs text-[rgb(var(--text-muted))] mt-1">
+                    {eur(paid)} pagos de {eur(debt.targetAmount || 0)}
+                  </div>
+                </div>
+              </motion.div>
+            )
+          })}
         </div>
-    );
-};
+      )}
 
-export default DebtManagement;
+      {/* Transaction history */}
+      {debtTx.length > 0 && (
+        <Card>
+          <div className="section-header mb-4">
+            <div className="section-title">
+              <TrendingDown size={16} />
+              Movimentos de Dívida
+            </div>
+          </div>
+          <div className="space-y-1">
+            {debtTx.slice(0, 10).map(t => {
+              const isPayment = t.valor > 0
+              return (
+                <div key={t.id}
+                  className="flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-[rgba(var(--surface-2),0.5)] transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      isPayment ? 'bg-[rgba(var(--pastel-green-bg),0.5)]' : 'bg-[rgba(var(--pastel-red-bg),0.5)]'
+                    }`}>
+                      <TrendingDown size={14} style={{
+                        color: isPayment ? 'rgb(var(--pastel-green-text))' : 'rgb(var(--pastel-red-text))'
+                      }} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-[rgb(var(--text))]">
+                        {isPayment ? 'Pagamento' : 'Encargo'}
+                      </p>
+                      {t.descricao && <p className="text-xs text-[rgb(var(--text-muted))] truncate">{t.descricao}</p>}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0 ml-3">
+                    <p className="text-sm font-semibold" style={{
+                      color: isPayment ? 'rgb(var(--pastel-green-text))' : 'rgb(var(--pastel-red-text))'
+                    }}>
+                      {isPayment ? '+' : '−'}{eur(Math.abs(t.valor))}
+                    </p>
+                    <p className="text-xs text-[rgb(var(--text-muted))]">
+                      {new Date(t.data).toLocaleDateString('pt-PT')}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+    </div>
+  )
+}

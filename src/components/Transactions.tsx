@@ -1,308 +1,383 @@
-// src/components/Transactions.tsx
 import { useMemo, useState } from 'react'
+import toast from 'react-hot-toast'
 import { useFirestore } from '../hooks/useFirestore'
 import CategorySelect from './CategorySelect'
 import { useCategories } from '../hooks/useCategories'
+import { Card } from './ui/Card'
+import { Button } from './ui/Button'
+import { TransactionBadge } from './ui/Badge'
+import { EmptyState } from './ui/EmptyState'
+import { Modal } from './ui/Modal'
+import { FAMILY_MEMBERS } from '../types'
 import * as XLSX from 'xlsx'
+import {
+  Plus, Download, Search, Trash2, ChevronLeft, ChevronRight,
+  ArrowUpCircle, ArrowDownCircle, PiggyBank, CreditCard, X, User
+} from 'lucide-react'
 
 type Tipo = 'receita' | 'despesa' | 'divida' | 'poupanca'
 const PAGE_SIZE = 50
 
-// ---- Helpers de formatação e validação ----
+const eur = (n: number) => Number(n || 0).toLocaleString('pt-PT', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })
+const toPT = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}` }
+const parseValor = (s: string) => parseFloat(String(s).trim().replace(/\./g, '').replace(',', '.'))
+const isDate = (v: string) => /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(v)
 
-// Formata ISO (YYYY-MM-DD) para PT (DD/MM/YYYY)
-const toPTDate = (iso: string) => {
-  const [yy, mm, dd] = iso.split('-')
-  return `${dd}/${mm}/${yy}`
-}
-
-// Formata número para EUR pt-PT
-const fmtEUR = (n: number) =>
-  Number(n || 0).toLocaleString('pt-PT', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-  })
-
-// Converte "1.234,56" -> 1234.56
-const parseValor = (s: string): number => {
-  const normalized = String(s ?? '').trim().replace(/\./g, '').replace(',', '.')
-  return Number(normalized)
-}
-
-// Validação YYYY-MM-DD
-const isYYYYMMDD = (v: string) =>
-  /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(v)
+const TYPE_LABELS: Record<Tipo, string> = { receita: 'Receita', despesa: 'Despesa', divida: 'Dívida', poupanca: 'Poupança' }
+const TYPE_ICONS = {
+  receita: ArrowUpCircle, despesa: ArrowDownCircle, poupanca: PiggyBank, divida: CreditCard
+} as const
 
 export default function Transactions() {
-  const { transacoes, adicionarTransacao, removerTransacao, saving, error } = useFirestore()
+  const { transacoes, adicionarTransacao, removerTransacao, saving } = useFirestore()
   const { items: categories } = useCategories()
 
-  // ---- Form state ----
-  const [type, setType] = useState<Tipo>('despesa')
-  const [valor, setValor] = useState<string>('') // string para normalização
-  const [data, setData] = useState<string>(new Date().toISOString().slice(0, 10)) // YYYY-MM-DD
-  const [categoryId, setCategoryId] = useState<string>('')
-  const [descricao, setDescricao] = useState<string>('')
+  // Formulário
+  const [formOpen, setFormOpen] = useState(false)
+  const [type, setType]         = useState<Tipo>('despesa')
+  const [valor, setValor]       = useState('')
+  const [data, setData]         = useState(new Date().toISOString().slice(0, 10))
+  const [categoryId, setCatId]  = useState('')
+  const [descricao, setDesc]    = useState('')
+  const [pessoa, setPessoa]     = useState('')
 
-  // ---- Categoria -> label (com ícone) ----
-  const idToLabel = useMemo(() => {
+  // Filtros
+  const [search, setSearch]      = useState('')
+  const [filterType, setFType]   = useState<Tipo | ''>('')
+  const [filterMonth, setFMonth] = useState('')
+  const [filterPessoa, setFPessoa] = useState('')
+
+  const [page, setPage] = useState(0)
+
+  const catMap = useMemo(() => {
     const m = new Map<string, string>()
-    for (const c of categories) {
-      if (c.id) m.set(c.id, `${c.icon ? c.icon + ' ' : ''}${c.name}`)
-    }
+    categories.forEach((c: { id?: string; name?: string }) => { if (c.id) m.set(c.id, c.name ?? '') })
     return m
   }, [categories])
 
-  // ---- Lista ordenada (desc) ----
-  const sorted = useMemo(() => {
-    return [...transacoes].sort(
-      (a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()
-    )
-  }, [transacoes])
+  // Lista filtrada
+  const filtered = useMemo(() => {
+    let list = [...transacoes].sort((a, b) => b.data.localeCompare(a.data))
+    if (filterType)   list = list.filter(t => t.type === filterType)
+    if (filterMonth)  list = list.filter(t => t.data.startsWith(filterMonth))
+    if (filterPessoa) list = list.filter(t => (t.pessoa ?? '') === filterPessoa)
+    if (search) {
+      const q = search.toLowerCase()
+      list = list.filter(t =>
+        (t.descricao ?? '').toLowerCase().includes(q) ||
+        (catMap.get(t.categoryId ?? '') ?? '').toLowerCase().includes(q) ||
+        (t.categoria ?? '').toLowerCase().includes(q) ||
+        (t.pessoa ?? '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [transacoes, filterType, filterMonth, filterPessoa, search, catMap])
 
-  // ---- Paginação ----
-  const [page, setPage] = useState(0)
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
-  const pageSlice = useMemo(() => {
-    const start = page * PAGE_SIZE
-    return sorted.slice(start, start + PAGE_SIZE)
-  }, [sorted, page])
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageSlice  = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
-  // ---- Exportar Excel (.xlsx) ----
-  const onExportXLSX = () => {
-    const rows = sorted.map(t => ({
-      'Data (PT)': toPTDate(t.data), // DD/MM/YYYY
-      'Tipo': t.type,
-      'Categoria': idToLabel.get(t.categoryId ?? '') ?? t.categoria ?? '',
-      'Descrição': (t.descricao ?? '').replace(/\r?\n/g, ' ').trim(),
-      'Valor (€)': Number(t.valor) || 0,
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Movimentos')
-    XLSX.writeFile(wb, `movimentos_${new Date().toISOString().slice(0,10)}.xlsx`)
-  }
+  const totals = useMemo(() => ({
+    receitas:  filtered.filter(t => t.type==='receita').reduce((s,t) => s+t.valor, 0),
+    despesas:  filtered.filter(t => t.type==='despesa').reduce((s,t) => s+t.valor, 0),
+    poupancas: filtered.filter(t => t.type==='poupanca').reduce((s,t) => s+t.valor, 0),
+  }), [filtered])
 
-  // ---- Submissão ----
-  async function handleAdd(e: React.FormEvent) {
+  const clearFilters = () => { setSearch(''); setFType(''); setFMonth(''); setFPessoa(''); setPage(0) }
+  const hasFilters = !!(search || filterType || filterMonth || filterPessoa)
+
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
     const vNum = parseValor(valor)
-
-    if (!Number.isFinite(vNum) || vNum === 0) {
-      alert('Valor inválido.')
-      return
-    }
-    if (!isYYYYMMDD(data)) {
-      alert('Data inválida.')
-      return
-    }
-    if ((type === 'despesa' || type === 'receita') && !categoryId) {
-      alert('Seleciona uma categoria.')
-      return
-    }
+    if (!Number.isFinite(vNum) || vNum === 0) { toast.error('Valor inválido'); return }
+    if (!isDate(data)) { toast.error('Data inválida'); return }
+    if ((type === 'despesa' || type === 'receita') && !categoryId) { toast.error('Seleciona uma categoria'); return }
 
     try {
       await adicionarTransacao({
-        type,
-        valor: vNum,
-        data, // guardamos ISO (YYYY-MM-DD)
-        categoryId: categoryId || undefined,
+        type, valor: vNum, data,
+        categoryId: categoryId || null,
         descricao: descricao.trim() || undefined,
+        pessoa: pessoa || undefined,
       })
-      setValor('')
-      setDescricao('')
-      // Mantém tipo/categoria para lançamentos consecutivos
-    } catch (e: any) {
-      alert(e?.message ?? 'Erro ao adicionar transação.')
+      toast.success('Transação adicionada!')
+      setValor(''); setDesc(''); setPessoa('')
+      setFormOpen(false)
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message ?? 'Erro ao adicionar')
     }
   }
 
-  const categoryTypeForSelect: 'receita' | 'poupanca' | 'despesa' =
+  const handleRemove = async (id: string) => {
+    if (!confirm('Eliminar esta transação?')) return
+    try {
+      await removerTransacao(id)
+      toast.success('Transação eliminada')
+    } catch {
+      toast.error('Erro ao eliminar')
+    }
+  }
+
+  const exportExcel = () => {
+    const rows = filtered.map(t => ({
+      'Data': toPT(t.data),
+      'Titular': t.pessoa || '—',
+      'Tipo': TYPE_LABELS[t.type as Tipo] ?? t.type,
+      'Categoria': catMap.get(t.categoryId ?? '') || t.categoria || '—',
+      'Descrição': t.descricao ?? '',
+      'Valor (€)': Number(t.valor),
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 22 }, { wch: 40 }, { wch: 14 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Transações')
+    XLSX.writeFile(wb, `transacoes-${new Date().toISOString().slice(0,10)}.xlsx`)
+    toast.success('Excel exportado!')
+  }
+
+  const catTypeForSelect: 'receita' | 'poupanca' | 'despesa' =
     type === 'receita' ? 'receita' : type === 'poupanca' ? 'poupanca' : 'despesa'
 
   return (
-    <section className="space-y-6">
-      {/* Cabeçalho com botão de exportação */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">📋 Transações</h2>
-        <button
-          onClick={onExportXLSX}
-          className="btn btn-secondary flex items-center gap-2"
-          title="Exportar todos os movimentos para Excel"
-        >
-          {/* Ícone simples (podes trocar por um pack de ícones) */}
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v16h16V4H4zm4 4h8m-8 4h8m-8 4h8" />
-          </svg>
-          Excel
-        </button>
+    <div className="space-y-5">
+      {/* KPIs de filtro */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: 'Receitas',  val: totals.receitas,  color: 'text-emerald-400' },
+          { label: 'Despesas',  val: totals.despesas,  color: 'text-rose-400' },
+          { label: 'Poupanças', val: totals.poupancas, color: 'text-blue-400' },
+        ].map(k => (
+          <Card key={k.label} className="text-center py-3">
+            <div className={`text-lg font-bold ${k.color}`}>{eur(k.val)}</div>
+            <div className="text-xs text-[rgb(var(--text-muted))]">{k.label}</div>
+          </Card>
+        ))}
       </div>
-      {/* Formulário alinhado em Grid (1 linha estável em desktop) */}
-      
-<form
-  onSubmit={handleAdd}
-  lang="pt" // CORREÇÃO 2: Adiciona o locale PT para o input type="date"
-  className="
-    w-full
-    sticky top-0 z-20
-    grid grid-cols-12 gap-2
-    py-3 px-3
-    bg-neutral-900/80 backdrop-blur
-    border border-white/10 rounded shadow-sm
-    items-end
-  "
->
-  {/* Tipo - col-span-2, com min-w-0 */}
-  <div className="flex flex-col col-span-2 min-w-0">
-    <label className="text-xs text-neutral-400 mb-1 truncate">Tipo</label>
-    <select
-      value={type}
-      onChange={(e) => { setType(e.target.value as Tipo); setCategoryId('') }}
-      className="select w-full text-sm pl-2 pr-8"
-    >
-      <option value="receita">Receita</option>
-      <option value="despesa">Despesa</option>
-      <option value="divida">Dívida</option>
-      <option value="poupanca">Poupança</option>
-    </select>
-  </div>
 
-  {/* Categoria - col-span-2, com min-w-0 */}
-  <div className="flex flex-col col-span-2 min-w-0">
-    <label className="text-xs text-neutral-400 mb-1 truncate">Categoria</label>
-    <CategorySelect
-      type={categoryTypeForSelect}
-      value={categoryId}
-      onChange={setCategoryId}
-      placeholder="Categoria"
-      className="w-full text-sm"
-    />
-  </div>
+      {/* Barra de filtros */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Busca */}
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgb(var(--text-muted))]" />
+          <input
+            className="input pl-9 text-sm py-2"
+            placeholder="Pesquisar descrição, categoria ou titular..."
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(0) }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text))]">
+              <X size={12} />
+            </button>
+          )}
+        </div>
 
-  {/* Descrição - col-span-3, com min-w-0 */}
-  <div className="flex flex-col col-span-3 min-w-0">
-    <label className="text-xs text-neutral-400 mb-1 truncate">Descrição</label>
-    <input
-      value={descricao}
-      onChange={(e) => setDescricao(e.target.value)}
-      placeholder="Ex.: Continente"
-      className="input w-full text-sm"
-      maxLength={200}
-    />
-  </div>
+        {/* Filtro titular */}
+        <select className="input text-sm py-2 w-auto" value={filterPessoa}
+          onChange={e => { setFPessoa(e.target.value); setPage(0) }}>
+          <option value="">Todos os titulares</option>
+          {FAMILY_MEMBERS.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
 
-  {/* Valor (€) - col-span-2, com min-w-0 */}
-  <div className="flex flex-col col-span-2 min-w-0">
-    <label className="text-xs text-neutral-400 mb-1 truncate">Valor (€)</label>
-    <input
-      type="text"
-      inputMode="decimal"
-      value={valor}
-      onChange={(e) => setValor(e.target.value)}
-      placeholder="0,00"
-      className="input w-full text-sm px-2"
-      required
-    />
-  </div>
+        {/* Filtro tipo */}
+        <select className="input text-sm py-2 w-auto" value={filterType}
+          onChange={e => { setFType(e.target.value as Tipo | ''); setPage(0) }}>
+          <option value="">Todos os tipos</option>
+          {(['receita','despesa','poupanca','divida'] as Tipo[]).map(t => (
+            <option key={t} value={t}>{TYPE_LABELS[t]}</option>
+          ))}
+        </select>
 
-  {/* Data - col-span-2, com min-w-0 */}
-  <div className="flex flex-col col-span-2 min-w-0">
-    <label className="text-xs text-neutral-400 mb-1 truncate">Data</label>
-    <input
-      type="date"
-      value={data}
-      onChange={(e) => setData(e.target.value)}
-      className="input w-full text-sm px-2" 
-      required
-    />
-  </div>
+        {/* Filtro mês */}
+        <input type="month" className="input text-sm py-2 w-auto" value={filterMonth}
+          onChange={e => { setFMonth(e.target.value); setPage(0) }} />
 
-  {/* Botão - col-span-1, com min-w-0 */}
-  <div className="flex col-span-1 min-w-0">
-    <button type="submit" disabled={saving} className="btn btn-primary w-full p-0 flex items-center justify-center">
-      {saving ? 'A processar' : 'Inserir'}
-    </button>
-  </div>
-</form>
+        {hasFilters && (
+          <button onClick={clearFilters} className="btn btn-ghost btn-sm gap-1 text-[rgb(var(--text-muted))]">
+            <X size={12} /> Limpar
+          </button>
+        )}
 
-      {error && <p className="text-red-400 text-sm">{String(error)}</p>}
+        <div className="flex gap-2 ml-auto">
+          <Button variant="secondary" icon={Download} size="sm" onClick={exportExcel}>Excel</Button>
+          <Button variant="primary" icon={Plus} size="sm" onClick={() => setFormOpen(true)}>Adicionar</Button>
+        </div>
+      </div>
 
-      {/* Lista paginada (50 por página) */}
-      {sorted.length === 0 ? (
-        <p className="text-slate-500">Sem transações</p>
-      ) : (
-        <>
-          {/* Controlo de páginas */}
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-slate-400">
-              Total: {sorted.length} • Página {page + 1} de {totalPages}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                className="btn btn-secondary"
-                onClick={() => setPage(p => Math.max(0, p - 1))}
-                disabled={page === 0}
-              >
-                ◀
-              </button>
-              <select
-                value={page}
-                onChange={(e) => setPage(Number(e.target.value))}
-                className="select"
-                title="Ir para página"
-              >
-                {Array.from({ length: totalPages }, (_, i) => (
-                  <option key={i} value={i}>Página {i + 1}</option>
-                ))}
-              </select>
-              <button
-                className="btn btn-secondary"
-                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                disabled={page >= totalPages - 1}
-              >
-                ▶
-              </button>
-            </div>
-          </div>
-
-          {/* Lista (data em DD/MM/YYYY) */}
-          <div className="rounded border border-white/10 max-h-[65vh] overflow-y-auto divide-y divide-white/5">
-            {pageSlice.map((t) => {
-              const isReceita = t.type === 'receita'
-              const isPoupanca = t.type === 'poupanca'
-              const amount = Number(t.valor) || 0
-              const sinal = isReceita ? '+' : '-'
-              const amountColor =
-                isReceita ? 'text-emerald-400' : isPoupanca ? 'text-blue-400' : 'text-red-400'
-
-              return (
-                <div key={t.id ?? `${t.data}-${t.valor}-${t.categoryId ?? ''}`} className="flex items-center justify-between p-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm px-2 py-0.5 rounded bg-white/5 capitalize">{t.type}</span>
-                    <div className="text-sm text-neutral-300 truncate max-w-[48ch]" title={t.descricao ?? ''}>
-                      {(t.categoryId && idToLabel.get(t.categoryId)) || t.categoria || '—'}
-                      {t.descricao ? ` · ${t.descricao}` : ''} · {toPTDate(t.data)}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className={`font-semibold ${amountColor}`}>{sinal}{fmtEUR(amount)}</div>
-                    {t.id && (
-                      <button
-                        onClick={() => removerTransacao(t.id!)}
-                        className="text-red-400 hover:text-red-300"
-                        title="Remover"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </>
+      {/* Resultados */}
+      {filtered.length > 0 && (
+        <div className="text-xs text-[rgb(var(--text-muted))]">
+          {filtered.length} transação{filtered.length !== 1 ? 'ões' : ''} · Pág. {page+1}/{totalPages}
+          {hasFilters && ' (filtrado)'}
+        </div>
       )}
-    </section>
+
+      {/* Tabela */}
+      {filtered.length === 0 ? (
+        <EmptyState icon={Search} title="Sem resultados"
+          description={hasFilters ? "Sem transações com os filtros ativos. Limpe os filtros para ver todas." : "Adicione a primeira transação usando o botão 'Adicionar'."}
+          action={hasFilters ? <Button variant="ghost" icon={X} onClick={clearFilters}>Limpar filtros</Button> : undefined}
+        />
+      ) : (
+        <div className="table-container">
+          <table className="table-pro">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Titular</th>
+                <th>Tipo</th>
+                <th>Categoria</th>
+                <th>Descrição</th>
+                <th className="text-right">Valor</th>
+                <th className="w-10"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageSlice.map(t => {
+                const isRec = t.type === 'receita'
+                const isPou = t.type === 'poupanca'
+                const TypeIcon = TYPE_ICONS[t.type as Tipo] ?? CreditCard
+                return (
+                  <tr key={t.id}>
+                    <td className="text-[rgb(var(--text-muted))] text-xs font-mono whitespace-nowrap">{toPT(t.data)}</td>
+                    <td>
+                      {t.pessoa ? (
+                        <div className="flex items-center gap-1 text-xs font-medium text-[rgb(var(--text-muted))]">
+                          <User size={11} />
+                          {t.pessoa}
+                        </div>
+                      ) : (
+                        <span className="text-[rgb(var(--text-muted))] text-xs">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        <TypeIcon size={13} className={isRec ? 'text-emerald-400' : isPou ? 'text-blue-400' : 'text-rose-400'} />
+                        <TransactionBadge type={t.type} />
+                      </div>
+                    </td>
+                    <td className="text-sm">
+                      {catMap.get(t.categoryId ?? '') || t.categoria || <span className="text-[rgb(var(--text-muted))]">—</span>}
+                    </td>
+                    <td className="text-sm text-[rgb(var(--text-muted))] max-w-[240px]">
+                      <div className="truncate" title={t.descricao ?? ''}>{t.descricao || '—'}</div>
+                    </td>
+                    <td className={`text-right font-bold text-sm ${isRec ? 'text-emerald-400' : isPou ? 'text-blue-400' : 'text-rose-400'}`}>
+                      {isRec ? '+' : '−'}{eur(t.valor)}
+                    </td>
+                    <td>
+                      {t.id && (
+                        <button onClick={() => handleRemove(t.id!)}
+                          className="btn btn-ghost p-1.5 text-rose-400 hover:bg-rose-400/10 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Paginação */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" icon={ChevronLeft} size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+            Anterior
+          </Button>
+          <span className="text-xs text-[rgb(var(--text-muted))]">Página {page + 1} de {totalPages}</span>
+          <Button variant="ghost" size="sm" iconRight={ChevronRight} disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+            Próxima
+          </Button>
+        </div>
+      )}
+
+      {/* Modal adicionar transação */}
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title="Nova Transação">
+        <form onSubmit={handleAdd} className="space-y-4">
+          {/* Tipo */}
+          <div>
+            <label className="block text-xs font-semibold text-[rgb(var(--text-muted))] mb-2 uppercase tracking-wider">Tipo *</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(['receita','despesa','poupanca','divida'] as Tipo[]).map(t => {
+                const TIcon = TYPE_ICONS[t]
+                const active = type === t
+                const colorMap = { receita: 'emerald', despesa: 'rose', poupanca: 'blue', divida: 'amber' }
+                const c = colorMap[t]
+                return (
+                  <button key={t} type="button"
+                    className={`flex items-center gap-2 p-2.5 rounded-xl border text-sm font-medium transition-all ${
+                      active
+                        ? `border-${c}-400/50 bg-${c}-400/10 text-${c}-400`
+                        : 'border-[rgba(var(--border),var(--border-alpha))] text-[rgb(var(--text-muted))] hover:border-[rgba(var(--brand),0.3)]'
+                    }`}
+                    onClick={() => { setType(t); setCatId('') }}
+                  >
+                    <TIcon size={14} /> {TYPE_LABELS[t]}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-[rgb(var(--text-muted))] mb-1.5 uppercase tracking-wider">Valor (€) *</label>
+              <input type="text" inputMode="decimal" className="input" placeholder="0,00" value={valor}
+                onChange={e => setValor(e.target.value)} autoFocus />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[rgb(var(--text-muted))] mb-1.5 uppercase tracking-wider">Data *</label>
+              <input type="date" className="input" value={data} onChange={e => setData(e.target.value)} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[rgb(var(--text-muted))] mb-1.5 uppercase tracking-wider">Titular</label>
+            <div className="flex flex-wrap gap-2">
+              <button type="button"
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  pessoa === ''
+                    ? 'border-[rgba(var(--brand),0.4)] bg-[rgba(var(--brand),0.08)] text-[rgb(var(--brand))]'
+                    : 'border-[rgba(var(--border),0.2)] text-[rgb(var(--text-muted))] hover:border-[rgba(var(--brand),0.3)]'
+                }`}
+                onClick={() => setPessoa('')}
+              >
+                —
+              </button>
+              {FAMILY_MEMBERS.map(p => (
+                <button key={p} type="button"
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1 ${
+                    pessoa === p
+                      ? 'border-[rgba(var(--brand),0.4)] bg-[rgba(var(--brand),0.08)] text-[rgb(var(--brand))]'
+                      : 'border-[rgba(var(--border),0.2)] text-[rgb(var(--text-muted))] hover:border-[rgba(var(--brand),0.3)]'
+                  }`}
+                  onClick={() => setPessoa(p)}
+                >
+                  <User size={10} /> {p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[rgb(var(--text-muted))] mb-1.5 uppercase tracking-wider">Categoria</label>
+            <CategorySelect type={catTypeForSelect} value={categoryId} onChange={setCatId} placeholder="Selecionar categoria" className="w-full" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[rgb(var(--text-muted))] mb-1.5 uppercase tracking-wider">Descrição</label>
+            <input className="input" placeholder="Nota opcional..." value={descricao}
+              onChange={e => setDesc(e.target.value)} maxLength={200} />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" type="button" onClick={() => setFormOpen(false)}>Cancelar</Button>
+            <Button variant="primary" type="submit" loading={saving}>Guardar</Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
   )
 }

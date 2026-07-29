@@ -1,67 +1,91 @@
 // src/types.ts
 
-// --- [ Tipos Base de Navegação e Autenticação ] ---
+export type TabId =
+  | 'dashboard'
+  | 'transactions'
+  | 'import'
+  | 'budgets'
+  | 'categories'
+  | 'savings'
+  | 'debt'
+  | 'summary'
+  | 'reports'
+  | 'recurring'
+  | 'accounts'
+  | 'calculators'
+  | 'calendar'
 
-export type TabId = 
-  | 'dashboard' 
-  | 'transactions' 
-  | 'budgets' 
-  | 'categories' 
-  | 'debt'     // NOVO: Dívidas
-  | 'savings'  // NOVO: Poupanças
-  | 'summary'; // NOVO: Resumo/KPIs
+export const FAMILY_MEMBERS = ['Ricardo', 'Josefa', 'Carlinda', 'Vânia', 'Ana'] as const
+export type FamilyMember = typeof FAMILY_MEMBERS[number]
 
 export type Transacao = {
-  id?: string
-  // Transacao types: 'divida' e 'poupanca' mantidos, 'transferencia' adicionada como boa prática.
-  type: 'receita' | 'despesa' | 'divida' | 'poupanca' | 'transferencia' 
-  valor: number
-  data: string
-  categoryId?: string | null
-  descricao?: string
-  categoria?: string // compat legado
+  id?: string
+  type: 'receita' | 'despesa' | 'divida' | 'poupanca' | 'transferencia'
+  valor: number
+  data: string
+  categoryId?: string | null
+  descricao?: string
+  categoria?: string
+  accountId?: string
+  pessoa?: string
 }
 
 export type AuthUserLike = { email: string | null }
 
-
-// --- [ NOVOS TIPOS PARA GESTÃO DE DÍVIDAS E ORÇAMENTOS ] ---
-
-/**
- * Interface para representar uma Dívida.
- * Inclui todos os campos do formulário (targetAmount, interestRate, minPayment, etc.).
- */
 export interface DebtType {
-  id?: string;
-  name: string; // Nome da Dívida (Ex: Crédito Habitação)
-  description: string; // Descrição (Opcional)
-  category: string; // Categoria de Dívida (Ex: Habitação, Pessoal)
-  
-  // Dados Financeiros
-  targetAmount: number; // Montante Inicial da Dívida (Ex: 150000.00)
-  currentAmount: number; // Montante Atual em dívida
-  interestRate: number; // Taxa de Juro Anual (%)
-  minPayment: number; // Pagamento Mínimo Mensal (€)
-  
-  // Datas e Controlo
-  startDate: string; // Data de Início da Dívida (Formato AAAA-MM-DD)
-  targetDate: string; // Data Alvo de Liquidação (Formato AAAA-MM-DD)
+  id?: string
+  name: string
+  description: string
+  category: string
+  targetAmount: number
+  currentAmount: number
+  interestRate: number
+  minPayment: number
+  startDate: string
+  targetDate: string
+  status?: 'active' | 'paid' | 'defaulted'
 }
 
-/**
- * Tipo para Dívidas lidas e usadas localmente, garantindo que o 'id' existe.
- * O seu hook useFirestore deve retornar um array deste tipo.
- */
-export type LocalDebtType = DebtType & { id: string };
+export type LocalDebtType = DebtType & { id: string }
 
-
-/**
- * Placeholder para a interface de Orçamento, se for usada pelo useFirestore.
- * Preencha esta interface com os campos reais do seu Orçamento.
- */
 export interface Orcamento {
-  id?: string;
-  category: string;
-  amount: number;
-  // Adicione outros campos de Orçamento, como startDate, endDate, etc.
+  id?: string
+  categoryId: string
+  periodo: string
+  limite: number
+}
+
+export interface SavingsGoal {
+  id?: string
+  name: string
+  description?: string
+  targetAmount: number
+  currentAmount: number
+  startDate: string
+  targetDate: string
+  assetClass: 'CASH' | 'STOCKS' | 'ETFS' | 'CRYPTO' | 'RETIREMENT' | 'OTHER'
+  expectedReturn?: number
+}
+
+export interface Account {
+  id?: string
+  name: string
+  type: 'checking' | 'savings' | 'credit' | 'cash' | 'investment' | 'other'
+  balance: number
+  color?: string
+  icon?: string
+  createdAt?: string
+}
+
+export interface RecurringTransaction {
+  id?: string
+  type: 'receita' | 'despesa'
+  valor: number
+  descricao: string
+  categoryId?: string
+  accountId?: string
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+  nextDate: string
+  active: boolean
+  createdAt?: string
 }
