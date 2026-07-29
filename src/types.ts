@@ -7,6 +7,7 @@ export type TabId =
   | 'budgets'
   | 'categories'
   | 'savings'
+  | 'investments'
   | 'debt'
   | 'summary'
   | 'reports'

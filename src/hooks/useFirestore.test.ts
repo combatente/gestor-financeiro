@@ -230,4 +230,86 @@ describe('useFirestore', () => {
       expect(payload).toMatchObject({ name: 'Fundo de emergência', targetAmount: 1000, currentAmount: 100 })
     })
   })
+
+  describe('addInvestment', () => {
+    it('rejeita quantidade inválida', async () => {
+      const { result } = renderHook(() => useFirestore())
+
+      await expect(
+        result.current.addInvestment({
+          ticker: 'VWCE',
+          name: 'Vanguard FTSE All-World',
+          platform: 'XTB',
+          assetType: 'ETF',
+          currency: 'EUR',
+          quantity: 0,
+          avgCost: 95,
+          currentPrice: 100,
+          quoteUpdatedAt: '2026-07-01',
+        })
+      ).rejects.toThrow(/inválidos ou incompletos/)
+      expect(addDocMock).not.toHaveBeenCalled()
+    })
+
+    it('grava uma posição válida com o ticker em maiúsculas', async () => {
+      const { result } = renderHook(() => useFirestore())
+
+      await act(async () => {
+        await result.current.addInvestment({
+          ticker: 'vwce',
+          name: 'Vanguard FTSE All-World',
+          platform: 'XTB',
+          assetType: 'ETF',
+          currency: 'EUR',
+          quantity: 10,
+          avgCost: 95,
+          currentPrice: 100,
+          quoteUpdatedAt: '2026-07-01',
+        })
+      })
+
+      expect(addDocMock).toHaveBeenCalledTimes(1)
+      const [, payload] = addDocMock.mock.calls[0]
+      expect(payload).toMatchObject({ ticker: 'VWCE', platform: 'XTB', assetType: 'ETF', quantity: 10 })
+    })
+  })
+
+  describe('addDividend', () => {
+    it('rejeita datas fora do formato AAAA-MM-DD', async () => {
+      const { result } = renderHook(() => useFirestore())
+
+      await expect(
+        result.current.addDividend({
+          investmentId: 'inv-1',
+          exDividendDate: '01-07-2026',
+          paymentDate: '2026-07-15',
+          amountPerShare: 0.5,
+          totalAmount: 5,
+          currency: 'EUR',
+          status: 'recebido',
+        })
+      ).rejects.toThrow(/inválidos ou incompletos/)
+      expect(addDocMock).not.toHaveBeenCalled()
+    })
+
+    it('grava um dividendo válido', async () => {
+      const { result } = renderHook(() => useFirestore())
+
+      await act(async () => {
+        await result.current.addDividend({
+          investmentId: 'inv-1',
+          exDividendDate: '2026-07-01',
+          paymentDate: '2026-07-15',
+          amountPerShare: 0.5,
+          totalAmount: 5,
+          currency: 'EUR',
+          status: 'recebido',
+        })
+      })
+
+      expect(addDocMock).toHaveBeenCalledTimes(1)
+      const [, payload] = addDocMock.mock.calls[0]
+      expect(payload).toMatchObject({ investmentId: 'inv-1', totalAmount: 5, status: 'recebido' })
+    })
+  })
 })

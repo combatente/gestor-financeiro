@@ -107,11 +107,64 @@ const DEFAULT_ALLOCATION: BudgetAllocation = {
     poupancaPct: 20,
 }
 
+// ----------------------------------------------------------------------
+// INVESTIMENTOS (posições individuais) + DIVIDENDOS
+// ----------------------------------------------------------------------
+
+export type Platform = 'DEGIRO' | 'XTB' | 'YOUHODLER' | 'TRADE_REPUBLIC' | 'OUTRA'
+export type InvestmentAssetType = 'ACAO' | 'ETF' | 'CRYPTO'
+export type Currency = 'EUR' | 'USD'
+
+export type InvestmentType = {
+    id: string
+    ticker: string
+    name: string
+    platform: Platform
+    assetType: InvestmentAssetType
+    currency: Currency
+    quantity: number
+    avgCost: number         // preço médio de compra, na `currency`
+    currentPrice: number    // última cotação conhecida, na `currency`
+    quoteUpdatedAt: string  // YYYY-MM-DD
+    notes?: string | null
+    createdAt: any
+}
+
+export type AddInvestmentInput = Omit<InvestmentType, 'id' | 'createdAt'>
+
+export type DividendStatus = 'anunciado' | 'recebido'
+
+export type DividendType = {
+    id: string
+    investmentId: string
+    exDividendDate: string   // YYYY-MM-DD
+    paymentDate: string      // YYYY-MM-DD
+    amountPerShare: number
+    totalAmount: number
+    currency: Currency
+    status: DividendStatus
+    notes?: string | null
+    createdAt: any
+}
+
+export type AddDividendInput = Omit<DividendType, 'id' | 'createdAt'>
+
+export type FxRate = { usdToEur: number }
+
+const DEFAULT_FX_RATE: FxRate = { usdToEur: 0.92 }
+const PLATFORMS: Platform[] = ['DEGIRO', 'XTB', 'YOUHODLER', 'TRADE_REPUBLIC', 'OUTRA']
+const INVESTMENT_ASSET_TYPES: InvestmentAssetType[] = ['ACAO', 'ETF', 'CRYPTO']
+const CURRENCIES: Currency[] = ['EUR', 'USD']
+const DIVIDEND_STATUSES: DividendStatus[] = ['anunciado', 'recebido']
+
 export type FirestoreHookResult = {
     transacoes: Transacao[];
     orcamentos: Orcamento[];
     debts: DebtType[];
     goals: GoalType[];
+    investments: InvestmentType[];
+    dividends: DividendType[];
+    fxRate: FxRate;
     budgetAllocations: Record<string, BudgetAllocation>;
     saving: boolean;
     error: string | null;
@@ -139,6 +192,13 @@ export type FirestoreHookResult = {
     addGoal: (g: AddGoalInput) => Promise<DocumentReference<DocumentData>>;
     updateGoal: (goalId: string, updates: Partial<GoalType>) => Promise<void>;
     removeGoal: (id: string) => Promise<void>;
+    addInvestment: (i: AddInvestmentInput) => Promise<DocumentReference<DocumentData>>;
+    updateInvestment: (investmentId: string, updates: Partial<InvestmentType>) => Promise<void>;
+    removeInvestment: (id: string) => Promise<void>;
+    addDividend: (d: AddDividendInput) => Promise<DocumentReference<DocumentData>>;
+    updateDividend: (dividendId: string, updates: Partial<DividendType>) => Promise<void>;
+    removeDividend: (id: string) => Promise<void>;
+    setFxRate: (rate: number) => Promise<void>;
     setBudgetAllocation: (periodo: string, alloc: BudgetAllocation) => Promise<void>;
     clearAllFinancialData: () => Promise<void>;
 };
@@ -183,6 +243,9 @@ export function useFirestore(): FirestoreHookResult {
     const [orcamentos, setOrcamentos] = useState<Orcamento[]>([])
     const [debts, setDebts] = useState<DebtType[]>([])
     const [goals, setGoals] = useState<GoalType[]>([])
+    const [investments, setInvestments] = useState<InvestmentType[]>([])
+    const [dividends, setDividends] = useState<DividendType[]>([])
+    const [fxRate, setFxRateState] = useState<FxRate>(DEFAULT_FX_RATE)
     const [budgetAllocations, setBudgetAllocations] = useState<Record<string, BudgetAllocation>>({})
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -209,8 +272,11 @@ export function useFirestore(): FirestoreHookResult {
         if (!uid) {
             setTransacoes([])
             setOrcamentos([])
-            setDebts([]) 
-            setGoals([]) 
+            setDebts([])
+            setGoals([])
+            setInvestments([])
+            setDividends([])
+            setFxRateState(DEFAULT_FX_RATE)
             setBudgetAllocations({})
             return
         }
@@ -291,7 +357,54 @@ export function useFirestore(): FirestoreHookResult {
             }
         )
 
-        unsubRefs.current = [unsubT, unsubO, unsubA, unsubD, unsubG]
+        // 6. INVESTIMENTOS (posições) - Coleção 'investments'
+        const unsubI = onSnapshot(
+            collection(db, `${basePath}/investments`),
+            (snap) => {
+                setInvestments(
+                    snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })) as InvestmentType[]
+                )
+            },
+            (e) => {
+                console.error('[onSnapshot investments]', e)
+                setError((e as any)?.message ?? 'Erro a ler investimentos')
+            }
+        )
+
+        // 7. DIVIDENDOS - Coleção 'dividends'
+        const unsubDiv = onSnapshot(
+            collection(db, `${basePath}/dividends`),
+            (snap) => {
+                setDividends(
+                    snap.docs.map((d) => ({ id: d.id, ...(d.data() as DocumentData) })) as DividendType[]
+                )
+            },
+            (e) => {
+                console.error('[onSnapshot dividends]', e)
+                setError((e as any)?.message ?? 'Erro a ler dividendos')
+            }
+        )
+
+        // 8. TAXA DE CÂMBIO USD→EUR - documento único 'meta/fxRate'
+        const unsubFx = onSnapshot(
+            doc(db, `${basePath}/meta/fxRate`),
+            (snap) => {
+                if (!snap.exists()) {
+                    setFxRateState(DEFAULT_FX_RATE)
+                    return
+                }
+                const data = snap.data() as Partial<FxRate>
+                setFxRateState({
+                    usdToEur: Number.isFinite(data.usdToEur) ? Number(data.usdToEur) : DEFAULT_FX_RATE.usdToEur,
+                })
+            },
+            (e) => {
+                console.error('[onSnapshot fxRate]', e)
+                setError((e as any)?.message ?? 'Erro a ler taxa de câmbio')
+            }
+        )
+
+        unsubRefs.current = [unsubT, unsubO, unsubA, unsubD, unsubG, unsubI, unsubDiv, unsubFx]
         return () => stopAll()
     }, [uid, basePath, stopAll])
 
@@ -736,6 +849,266 @@ export function useFirestore(): FirestoreHookResult {
 
 
     /**
+      * @description Adiciona uma nova posição de investimento (investments)
+      */
+    const addInvestment = useCallback(
+        async (i: AddInvestmentInput): Promise<DocumentReference<DocumentData>> => {
+            setError(null)
+            setSaving(true)
+
+            try {
+                const sanitizeNumber = (value: any) => Number.isFinite(Number(value)) ? Number(value) : 0
+
+                const ticker = String(i.ticker ?? '').trim().toUpperCase()
+                const name = String(i.name ?? '').trim()
+                const quantity = sanitizeNumber(i.quantity)
+                const avgCost = sanitizeNumber(i.avgCost)
+                const currentPrice = sanitizeNumber(i.currentPrice)
+                const quoteUpdatedAt = String(i.quoteUpdatedAt ?? '').trim()
+
+                if (
+                    !ticker || !name ||
+                    !PLATFORMS.includes(i.platform) ||
+                    !INVESTMENT_ASSET_TYPES.includes(i.assetType) ||
+                    !CURRENCIES.includes(i.currency) ||
+                    !Number.isFinite(quantity) || quantity <= 0 ||
+                    !Number.isFinite(avgCost) || avgCost < 0 ||
+                    !Number.isFinite(currentPrice) || currentPrice < 0 ||
+                    !isYYYYMMDD(quoteUpdatedAt)
+                ) {
+                    throw new Error('Dados de investimento inválidos ou incompletos. Verifique: ticker, nome, plataforma, tipo de ativo, moeda, quantidade (>0), preços (>=0) e data da cotação (AAAA-MM-DD).')
+                }
+
+                const docRef = await addDoc(collection(db, `${basePath}/investments`), {
+                    ticker,
+                    name,
+                    platform: i.platform,
+                    assetType: i.assetType,
+                    currency: i.currency,
+                    quantity,
+                    avgCost,
+                    currentPrice,
+                    quoteUpdatedAt,
+                    notes: i.notes ?? null,
+                    createdAt: serverTimestamp(),
+                })
+                return docRef
+            } catch (e: any) {
+                console.error('[add investment]', e)
+                setError(e?.message ?? 'Erro ao adicionar investimento.')
+                throw e
+            } finally {
+                setSaving(false)
+            }
+        },
+        [basePath]
+    )
+
+    /**
+      * @description Atualiza uma posição de investimento existente
+      */
+    const updateInvestment = useCallback(
+        async (investmentId: string, updates: Partial<InvestmentType>) => {
+            setError(null)
+            setSaving(true)
+
+            try {
+                if (!investmentId) throw new Error('ID do investimento inválido.')
+
+                if (updates.quantity !== undefined) {
+                    const q = Number(updates.quantity)
+                    if (!Number.isFinite(q) || q <= 0) throw new Error('Quantidade inválida.')
+                    updates.quantity = q
+                }
+                if (updates.avgCost !== undefined) {
+                    const v = Number(updates.avgCost)
+                    if (!Number.isFinite(v) || v < 0) throw new Error('Preço médio inválido.')
+                    updates.avgCost = v
+                }
+                if (updates.currentPrice !== undefined) {
+                    const v = Number(updates.currentPrice)
+                    if (!Number.isFinite(v) || v < 0) throw new Error('Cotação atual inválida.')
+                    updates.currentPrice = v
+                }
+                if (updates.quoteUpdatedAt !== undefined && !isYYYYMMDD(updates.quoteUpdatedAt)) {
+                    throw new Error('Data da cotação inválida.')
+                }
+
+                const ref = doc(db, `${basePath}/investments/${investmentId}`)
+                await updateDoc(ref, {
+                    ...updates,
+                    updatedAt: serverTimestamp(),
+                })
+            } catch (e: any) {
+                console.error('[update investment]', e)
+                setError(e?.message ?? 'Erro ao atualizar investimento.')
+                throw e
+            } finally {
+                setSaving(false)
+            }
+        },
+        [basePath]
+    )
+
+    /**
+      * @description Remove uma posição de investimento
+      */
+    const removeInvestment = useCallback(
+        async (id: string) => {
+            setError(null)
+            setSaving(true)
+            try {
+                await deleteDoc(doc(db, `${basePath}/investments/${id}`))
+            } catch (e: any) {
+                console.error('[remove investment]', e)
+                setError(e?.message ?? 'Erro ao remover investimento.')
+                throw e
+            } finally {
+                setSaving(false)
+            }
+        },
+        [basePath]
+    )
+
+    /**
+      * @description Regista um dividendo (anunciado ou recebido) de uma posição
+      */
+    const addDividend = useCallback(
+        async (d: AddDividendInput): Promise<DocumentReference<DocumentData>> => {
+            setError(null)
+            setSaving(true)
+
+            try {
+                const sanitizeNumber = (value: any) => Number.isFinite(Number(value)) ? Number(value) : 0
+
+                const investmentId = String(d.investmentId ?? '').trim()
+                const exDividendDate = String(d.exDividendDate ?? '').trim()
+                const paymentDate = String(d.paymentDate ?? '').trim()
+                const amountPerShare = sanitizeNumber(d.amountPerShare)
+                const totalAmount = sanitizeNumber(d.totalAmount)
+
+                if (
+                    !investmentId ||
+                    !isYYYYMMDD(exDividendDate) ||
+                    !isYYYYMMDD(paymentDate) ||
+                    !Number.isFinite(amountPerShare) || amountPerShare < 0 ||
+                    !Number.isFinite(totalAmount) || totalAmount <= 0 ||
+                    !CURRENCIES.includes(d.currency) ||
+                    !DIVIDEND_STATUSES.includes(d.status)
+                ) {
+                    throw new Error('Dados de dividendo inválidos ou incompletos. Verifique: posição, datas ex-dividendo/pagamento (AAAA-MM-DD), valores e moeda.')
+                }
+
+                const docRef = await addDoc(collection(db, `${basePath}/dividends`), {
+                    investmentId,
+                    exDividendDate,
+                    paymentDate,
+                    amountPerShare,
+                    totalAmount,
+                    currency: d.currency,
+                    status: d.status,
+                    notes: d.notes ?? null,
+                    createdAt: serverTimestamp(),
+                })
+                return docRef
+            } catch (e: any) {
+                console.error('[add dividend]', e)
+                setError(e?.message ?? 'Erro ao adicionar dividendo.')
+                throw e
+            } finally {
+                setSaving(false)
+            }
+        },
+        [basePath]
+    )
+
+    /**
+      * @description Atualiza um dividendo existente (ex: passar de "anunciado" a "recebido")
+      */
+    const updateDividend = useCallback(
+        async (dividendId: string, updates: Partial<DividendType>) => {
+            setError(null)
+            setSaving(true)
+
+            try {
+                if (!dividendId) throw new Error('ID do dividendo inválido.')
+
+                if (updates.exDividendDate !== undefined && !isYYYYMMDD(updates.exDividendDate)) {
+                    throw new Error('Data ex-dividendo inválida.')
+                }
+                if (updates.paymentDate !== undefined && !isYYYYMMDD(updates.paymentDate)) {
+                    throw new Error('Data de pagamento inválida.')
+                }
+                if (updates.totalAmount !== undefined) {
+                    const v = Number(updates.totalAmount)
+                    if (!Number.isFinite(v) || v <= 0) throw new Error('Valor total inválido.')
+                    updates.totalAmount = v
+                }
+
+                const ref = doc(db, `${basePath}/dividends/${dividendId}`)
+                await updateDoc(ref, {
+                    ...updates,
+                    updatedAt: serverTimestamp(),
+                })
+            } catch (e: any) {
+                console.error('[update dividend]', e)
+                setError(e?.message ?? 'Erro ao atualizar dividendo.')
+                throw e
+            } finally {
+                setSaving(false)
+            }
+        },
+        [basePath]
+    )
+
+    /**
+      * @description Remove um dividendo
+      */
+    const removeDividend = useCallback(
+        async (id: string) => {
+            setError(null)
+            setSaving(true)
+            try {
+                await deleteDoc(doc(db, `${basePath}/dividends/${id}`))
+            } catch (e: any) {
+                console.error('[remove dividend]', e)
+                setError(e?.message ?? 'Erro ao remover dividendo.')
+                throw e
+            } finally {
+                setSaving(false)
+            }
+        },
+        [basePath]
+    )
+
+    /**
+      * @description Define a taxa de câmbio USD→EUR usada para consolidar a carteira
+      */
+    const setFxRate = useCallback(
+        async (rate: number) => {
+            setError(null)
+            setSaving(true)
+            try {
+                const usdToEur = Number(rate)
+                if (!Number.isFinite(usdToEur) || usdToEur <= 0) throw new Error('Taxa de câmbio inválida.')
+
+                await setDoc(
+                    doc(db, `${basePath}/meta/fxRate`),
+                    { usdToEur, updatedAt: serverTimestamp() },
+                    { merge: true }
+                )
+            } catch (e: any) {
+                console.error('[set fxRate]', e)
+                setError(e?.message ?? 'Erro ao definir taxa de câmbio.')
+                throw e
+            } finally {
+                setSaving(false)
+            }
+        },
+        [basePath]
+    )
+
+    /**
       * @description Limpa todos os dados de Dívidas, Metas, e respetivas Transações.
       */
     const clearAllFinancialData = useCallback(async () => {
@@ -894,6 +1267,9 @@ export function useFirestore(): FirestoreHookResult {
         orcamentos,
         debts,
         goals,
+        investments,
+        dividends,
+        fxRate,
         budgetAllocations,
         saving,
         error,
@@ -914,6 +1290,13 @@ export function useFirestore(): FirestoreHookResult {
         addGoal,
         updateGoal,
         removeGoal,
+        addInvestment,
+        updateInvestment,
+        removeInvestment,
+        addDividend,
+        updateDividend,
+        removeDividend,
+        setFxRate,
         setBudgetAllocation,
         clearAllFinancialData,
     }

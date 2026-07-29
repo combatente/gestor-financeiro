@@ -12,6 +12,7 @@ const BankImport = lazy(() => import("./components/BankImport"))
 const Budgets = lazy(() => import("./components/Budgets"))
 const Categories = lazy(() => import("./components/Categories"))
 const SavingsGoals = lazy(() => import("./components/SavingsGoals"))
+const Investments = lazy(() => import("./components/Investments"))
 const DebtManagement = lazy(() => import("./components/DebtManagement"))
 const Accounts = lazy(() => import("./components/Accounts"))
 const RecurringTransactions = lazy(() => import("./components/RecurringTransactions"))
@@ -73,6 +74,7 @@ export default function App() {
           {tab === "budgets"      && <Budgets />}
           {tab === "categories"   && <Categories />}
           {tab === "savings"      && <SavingsGoals />}
+          {tab === "investments"  && <Investments />}
           {tab === "debt"         && <DebtManagement />}
           {tab === "accounts"     && <Accounts />}
           {tab === "recurring"    && <RecurringTransactions />}

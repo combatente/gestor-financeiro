@@ -9,7 +9,7 @@ import {
   LayoutDashboard, CreditCard, Upload, Target, Tag,
   PiggyBank, TrendingUp, FileBarChart, RefreshCw,
   Wallet, Calculator, CalendarDays, LogOut, Sun, Moon,
-  Menu, X, ChevronRight, Landmark
+  Menu, X, ChevronRight, Landmark, LineChart
 } from 'lucide-react'
 
 type LayoutProps = {
@@ -33,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'budgets',      label: 'Orçamentos',          icon: Target,          group: 'gestao' },
   { id: 'categories',   label: 'Categorias',          icon: Tag,             group: 'gestao' },
   { id: 'savings',      label: 'Poupanças',           icon: PiggyBank,       group: 'gestao' },
+  { id: 'investments',  label: 'Investimentos',       icon: LineChart,       group: 'gestao' },
   { id: 'debt',         label: 'Dívidas',             icon: Landmark,        group: 'gestao' },
   { id: 'accounts',     label: 'Contas',              icon: Wallet,          group: 'gestao' },
   { id: 'recurring',    label: 'Recorrentes',         icon: RefreshCw,       group: 'gestao' },
@@ -55,6 +56,7 @@ const PAGE_TITLES: Record<TabId, string> = {
   budgets:      'Orçamentos',
   categories:   'Categorias',
   savings:      'Poupanças',
+  investments:  'Investimentos',
   debt:         'Dívidas',
   accounts:     'Contas Bancárias',
   recurring:    'Transações Recorrentes',
@@ -143,12 +145,10 @@ export default function Layout({ tab, onTabChange, user, children }: LayoutProps
   )
 
   // Bottom nav items para mobile
-  const bottomNav: NavItem[] = [
-    NAV_ITEMS[0], // dashboard
-    NAV_ITEMS[1], // transactions
-    NAV_ITEMS[2], // import
-    NAV_ITEMS[9], // summary
-  ]
+  const bottomNavIds: TabId[] = ['dashboard', 'transactions', 'import', 'summary']
+  const bottomNav: NavItem[] = bottomNavIds
+    .map(id => NAV_ITEMS.find(n => n.id === id))
+    .filter((n): n is NavItem => Boolean(n))
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'rgb(var(--bg))' }}>
