@@ -12,7 +12,7 @@ const deleteDocMock = vi.fn(async (..._args: unknown[]) => undefined)
 const updateDocMock = vi.fn(async (..._args: unknown[]) => undefined)
 const setDocMock = vi.fn(async (..._args: unknown[]) => undefined)
 const getDocMock = vi.fn(async (..._args: unknown[]) => ({ exists: () => false }))
-const getDocsMock = vi.fn(async (..._args: unknown[]) => ({ docs: [] as Array<{ id: string; data: () => Record<string, unknown> }> }))
+const getDocsMock = vi.fn(async (..._args: unknown[]) => ({ docs: [] as Array<{ id: string; data: () => Record<string, unknown>; ref: unknown }> }))
 const batchDeleteMock = vi.fn()
 const batchCommitMock = vi.fn(async () => undefined)
 
@@ -329,6 +329,34 @@ describe('useFirestore', () => {
       expect(addDocMock).toHaveBeenCalledTimes(1)
       const [, payload] = addDocMock.mock.calls[0]
       expect(payload).toMatchObject({ investmentId: 'inv-1', totalAmount: 5, status: 'recebido' })
+    })
+  })
+
+  describe('resetAllHouseholdData', () => {
+    it('apaga todos os documentos encontrados em cada coleção e a taxa de câmbio', async () => {
+      const { result } = renderHook(() => useFirestore())
+
+      getDocsMock.mockImplementation(async (...args: unknown[]) => {
+        const ref = args[0] as { path: string }
+        const makeDoc = (id: string) => ({ id, data: () => ({}), ref: { path: `${ref.path}/${id}` } })
+        if (ref.path === `${BASE}/transacoes`) {
+          return { docs: [makeDoc('t1'), makeDoc('t2')] }
+        }
+        if (ref.path === 'categories') {
+          return { docs: [makeDoc('c1')] }
+        }
+        return { docs: [] }
+      })
+
+      await act(async () => {
+        await result.current.resetAllHouseholdData()
+      })
+
+      // 2 transações + 1 categoria + 1 doc de taxa de câmbio = 4 remoções
+      expect(batchDeleteMock).toHaveBeenCalledTimes(4)
+      expect(batchCommitMock).toHaveBeenCalledTimes(1)
+
+      getDocsMock.mockImplementation(async () => ({ docs: [] }))
     })
   })
 })

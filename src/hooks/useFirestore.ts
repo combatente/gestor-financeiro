@@ -214,6 +214,7 @@ export type FirestoreHookResult = {
     upsertNetWorthSnapshot: (month: string, data: { totalInvested: number; totalDebt: number; netWorth: number }) => Promise<void>;
     setBudgetAllocation: (periodo: string, alloc: BudgetAllocation) => Promise<void>;
     clearAllFinancialData: () => Promise<void>;
+    resetAllHouseholdData: () => Promise<void>;
 };
 const isYYYYMM = (v: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(v)
 
@@ -1211,6 +1212,56 @@ export function useFirestore(): FirestoreHookResult {
         }
     }, [basePath]);
 
+    /**
+      * @description Apaga TODOS os dados do agregado familiar (transações, orçamentos,
+      * alocações, dívidas, metas, investimentos, dividendos, contas, recorrentes,
+      * histórico de património e categorias) e repõe a taxa de câmbio por defeito.
+      * Ação destrutiva e irreversível — deve ter confirmação explícita na UI antes
+      * de ser chamada.
+      */
+    const resetAllHouseholdData = useCallback(async () => {
+        setError(null)
+        setSaving(true)
+        try {
+            const householdCollections = [
+                `${basePath}/transacoes`,
+                `${basePath}/orcamentos`,
+                `${basePath}/allocations`,
+                `${basePath}/liabilities`,
+                `${basePath}/assets`,
+                `${basePath}/investments`,
+                `${basePath}/dividends`,
+                `${basePath}/netWorthSnapshots`,
+                `${basePath}/accounts`,
+                `${basePath}/recurring`,
+            ]
+
+            const allRefs: DocumentReference[] = []
+            for (const path of householdCollections) {
+                const snap = await getDocs(collection(db, path))
+                snap.docs.forEach(d => allRefs.push(d.ref))
+            }
+            // Categorias vivem numa coleção de topo (não são por agregado familiar)
+            const categoriesSnap = await getDocs(collection(db, 'categories'))
+            categoriesSnap.docs.forEach(d => allRefs.push(d.ref))
+            // Taxa de câmbio (documento único)
+            allRefs.push(doc(db, `${basePath}/meta/fxRate`))
+
+            // Firestore só permite 500 operações por batch — divide em lotes seguros.
+            const CHUNK_SIZE = 400
+            for (let i = 0; i < allRefs.length; i += CHUNK_SIZE) {
+                const batch = writeBatch(db)
+                allRefs.slice(i, i + CHUNK_SIZE).forEach(ref => batch.delete(ref))
+                await batch.commit()
+            }
+        } catch (e: any) {
+            console.error('[reset all household data]', e)
+            setError(e?.message ?? 'Erro ao repor os dados da aplicação.')
+            throw e
+        } finally {
+            setSaving(false)
+        }
+    }, [basePath])
 
     // --- Funções de Orçamento (Inalteradas, mas completas para o retorno) ---
     const adicionarOrcamento = useCallback(
@@ -1357,5 +1408,6 @@ export function useFirestore(): FirestoreHookResult {
         upsertNetWorthSnapshot,
         setBudgetAllocation,
         clearAllFinancialData,
+        resetAllHouseholdData,
     }
 }

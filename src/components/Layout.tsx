@@ -5,11 +5,12 @@ import { signOut } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useTheme } from '../hooks/useTheme'
 import type { TabId, AuthUserLike } from '../types'
+import { ResetAppModal } from './ResetAppModal'
 import {
   LayoutDashboard, CreditCard, Upload, Target, Tag,
   PiggyBank, TrendingUp, FileBarChart, RefreshCw,
   Wallet, Calculator, CalendarDays, LogOut, Sun, Moon,
-  Menu, X, ChevronRight, Landmark, LineChart
+  Menu, X, ChevronRight, Landmark, LineChart, AlertTriangle
 } from 'lucide-react'
 
 type LayoutProps = {
@@ -69,6 +70,7 @@ const PAGE_TITLES: Record<TabId, string> = {
 export default function Layout({ tab, onTabChange, user, children }: LayoutProps) {
   const { theme, setTheme } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
 
   const groups = ['principal', 'gestao', 'analise']
 
@@ -133,6 +135,13 @@ export default function Layout({ tab, onTabChange, user, children }: LayoutProps
           }
         </button>
         <button
+          onClick={() => setResetOpen(true)}
+          className="nav-link text-rose-400 hover:bg-rose-400/10"
+        >
+          <AlertTriangle size={16} className="flex-shrink-0" />
+          <span className="flex-1 text-left truncate">Repor Dados</span>
+        </button>
+        <button
           onClick={() => signOut(auth)}
           className="nav-link text-rose-400 hover:bg-rose-400/10"
           title={user?.email ?? undefined}
@@ -152,6 +161,10 @@ export default function Layout({ tab, onTabChange, user, children }: LayoutProps
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'rgb(var(--bg))' }}>
+
+      <AnimatePresence>
+        {resetOpen && <ResetAppModal onClose={() => setResetOpen(false)} />}
+      </AnimatePresence>
 
       {/* SIDEBAR DESKTOP */}
       <aside className="hidden md:flex flex-col w-60 flex-shrink-0 border-r border-[rgba(var(--border),var(--border-alpha))]"
