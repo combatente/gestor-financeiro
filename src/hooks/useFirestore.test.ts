@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type SnapshotCallback = (snap: { docs: Array<{ id: string; data: () => Record<string, unknown> }> }) => void
 
@@ -271,6 +271,25 @@ describe('useFirestore', () => {
       expect(addDocMock).toHaveBeenCalledTimes(1)
       const [, payload] = addDocMock.mock.calls[0]
       expect(payload).toMatchObject({ ticker: 'VWCE', platform: 'XTB', assetType: 'ETF', quantity: 10 })
+    })
+  })
+
+  describe('dadosGraficoTempo', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('a etiqueta do último mês corresponde ao mês atual, mesmo em fusos com offset positivo', () => {
+      // Fixa "agora" no dia 1 às 00:00 local, o caso que expõe o desfasamento de
+      // toISOString() em fusos como Europe/Lisbon (UTC+1 no verão): a meia-noite
+      // local do dia 1 corresponde ainda ao mês anterior em UTC.
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 6, 1, 0, 0, 0))
+
+      const { result } = renderHook(() => useFirestore())
+      const dados = result.current.dadosGraficoTempo('3M')
+
+      expect(dados[dados.length - 1].mes).toBe('07')
     })
   })
 

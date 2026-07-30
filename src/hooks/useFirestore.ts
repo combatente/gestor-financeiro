@@ -157,6 +157,17 @@ const INVESTMENT_ASSET_TYPES: InvestmentAssetType[] = ['ACAO', 'ETF', 'CRYPTO']
 const CURRENCIES: Currency[] = ['EUR', 'USD']
 const DIVIDEND_STATUSES: DividendStatus[] = ['anunciado', 'recebido']
 
+// ----------------------------------------------------------------------
+// SNAPSHOTS MENSAIS DE PATRIMÓNIO LÍQUIDO (histórico real, não simulado)
+// ----------------------------------------------------------------------
+
+export type NetWorthSnapshot = {
+    id: string // YYYY-MM
+    totalInvested: number
+    totalDebt: number
+    netWorth: number
+}
+
 export type FirestoreHookResult = {
     transacoes: Transacao[];
     orcamentos: Orcamento[];
@@ -165,6 +176,7 @@ export type FirestoreHookResult = {
     investments: InvestmentType[];
     dividends: DividendType[];
     fxRate: FxRate;
+    netWorthSnapshots: NetWorthSnapshot[];
     budgetAllocations: Record<string, BudgetAllocation>;
     saving: boolean;
     error: string | null;
@@ -199,6 +211,7 @@ export type FirestoreHookResult = {
     updateDividend: (dividendId: string, updates: Partial<DividendType>) => Promise<void>;
     removeDividend: (id: string) => Promise<void>;
     setFxRate: (rate: number) => Promise<void>;
+    upsertNetWorthSnapshot: (month: string, data: { totalInvested: number; totalDebt: number; netWorth: number }) => Promise<void>;
     setBudgetAllocation: (periodo: string, alloc: BudgetAllocation) => Promise<void>;
     clearAllFinancialData: () => Promise<void>;
 };
@@ -246,6 +259,7 @@ export function useFirestore(): FirestoreHookResult {
     const [investments, setInvestments] = useState<InvestmentType[]>([])
     const [dividends, setDividends] = useState<DividendType[]>([])
     const [fxRate, setFxRateState] = useState<FxRate>(DEFAULT_FX_RATE)
+    const [netWorthSnapshots, setNetWorthSnapshots] = useState<NetWorthSnapshot[]>([])
     const [budgetAllocations, setBudgetAllocations] = useState<Record<string, BudgetAllocation>>({})
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -277,6 +291,7 @@ export function useFirestore(): FirestoreHookResult {
             setInvestments([])
             setDividends([])
             setFxRateState(DEFAULT_FX_RATE)
+            setNetWorthSnapshots([])
             setBudgetAllocations({})
             return
         }
@@ -404,7 +419,22 @@ export function useFirestore(): FirestoreHookResult {
             }
         )
 
-        unsubRefs.current = [unsubT, unsubO, unsubA, unsubD, unsubG, unsubI, unsubDiv, unsubFx]
+        // 9. SNAPSHOTS MENSAIS DE PATRIMÓNIO LÍQUIDO - Coleção 'netWorthSnapshots'
+        const unsubNW = onSnapshot(
+            collection(db, `${basePath}/netWorthSnapshots`),
+            (snap) => {
+                setNetWorthSnapshots(
+                    snap.docs
+                        .map((d) => ({ id: d.id, ...(d.data() as DocumentData) })) as NetWorthSnapshot[]
+                )
+            },
+            (e) => {
+                console.error('[onSnapshot netWorthSnapshots]', e)
+                setError((e as any)?.message ?? 'Erro a ler histórico de património')
+            }
+        )
+
+        unsubRefs.current = [unsubT, unsubO, unsubA, unsubD, unsubG, unsubI, unsubDiv, unsubFx, unsubNW]
         return () => stopAll()
     }, [uid, basePath, stopAll])
 
@@ -439,14 +469,14 @@ export function useFirestore(): FirestoreHookResult {
         const months = getMonthsFromRange(range)
         for (let i = 0; i < months; i++) {
             const d = new Date(to.getFullYear(), to.getMonth() - i, 1)
-            const key = d.toISOString().slice(0, 7)
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
             mesesMap[key] = { receitas: 0, despesas: 0, poupancas: 0 }
         }
 
         transacoes.forEach((t) => {
             const d = new Date(t.data)
             if (d < from || d > to) return
-            const key = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 7)
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
             if (!mesesMap[key]) return
 
             const val = Number(t.valor) || 0
@@ -1109,6 +1139,32 @@ export function useFirestore(): FirestoreHookResult {
     )
 
     /**
+      * @description Regista/atualiza o snapshot de património líquido do mês indicado.
+      * Construído de forma incremental (chamado sempre que o Resumo Financeiro é
+      * visto) para gerar um histórico real ao longo do tempo, em vez de simulado.
+      */
+    const upsertNetWorthSnapshot = useCallback(
+        async (month: string, data: { totalInvested: number; totalDebt: number; netWorth: number }) => {
+            try {
+                if (!isYYYYMM(month)) throw new Error('Mês inválido.')
+                await setDoc(
+                    doc(db, `${basePath}/netWorthSnapshots/${month}`),
+                    {
+                        totalInvested: data.totalInvested,
+                        totalDebt: data.totalDebt,
+                        netWorth: data.netWorth,
+                        updatedAt: serverTimestamp(),
+                    },
+                    { merge: true }
+                )
+            } catch (e: any) {
+                console.error('[upsert net worth snapshot]', e)
+            }
+        },
+        [basePath]
+    )
+
+    /**
       * @description Limpa todos os dados de Dívidas, Metas, e respetivas Transações.
       */
     const clearAllFinancialData = useCallback(async () => {
@@ -1270,6 +1326,7 @@ export function useFirestore(): FirestoreHookResult {
         investments,
         dividends,
         fxRate,
+        netWorthSnapshots,
         budgetAllocations,
         saving,
         error,
@@ -1297,6 +1354,7 @@ export function useFirestore(): FirestoreHookResult {
         updateDividend,
         removeDividend,
         setFxRate,
+        upsertNetWorthSnapshot,
         setBudgetAllocation,
         clearAllFinancialData,
     }

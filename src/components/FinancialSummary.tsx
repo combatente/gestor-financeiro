@@ -1,48 +1,31 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 // Importação do hook central e dos tipos necessários
 import { useFirestore } from '../hooks/useFirestore'; // Ajuste o caminho se necessário
 // Importação dos componentes de gráficos (assumindo que RechartsComponents.tsx foi ajustado)
-import { DistributionDonutChart, NetWorthLineChart } from './charts/RechartsComponents'; 
+import { DistributionDonutChart, NetWorthLineChart } from './charts/RechartsComponents';
+import { nowMonth } from './dashboard/dashboardHelpers';
+import {
+    averageMonthlyIncomeExpenses, estimateDebtPayoffMonths, formatPayoffDuration,
+} from './financialSummary/financialSummaryHelpers';
 
 
 // --- Tipos de Dados (Devem corresponder ao que o Firestore retorna para 'liabilities' e 'assets') ---
 
-type DebtType = { 
-    id: string; 
-    name: string; 
+type DebtType = {
+    id: string;
+    name: string;
     currentAmount: number; // Saldo atual da dívida (Tipo correto na interface)
-    interestRate: number; 
-    minimumPayment: number 
+    interestRate: number;
+    minimumPayment: number
 };
-type GoalType = { 
-    id: string; 
-    name: string; 
+type GoalType = {
+    id: string;
+    name: string;
     currentAmount: number; // Saldo atual da poupança/meta
-    assetClass: 'CASH' | 'STOCKS' | 'ETFS' | 'CRYPTO' | 'RETIREMENT' | 'OTHER'; 
+    assetClass: 'CASH' | 'STOCKS' | 'ETFS' | 'CRYPTO' | 'RETIREMENT' | 'OTHER';
 };
 type AssetClass = GoalType['assetClass'];
-type MonthlyIncome = number; 
-type HistoricalSnapshot = {
-    date: string; // YYYY-MM-DD
-    totalAssets: number;
-    totalDebt: number;
-};
-
-
-// --- Constantes Fixas (Não Dinâmicas do Firestore) ---
-
-const MOCK_MONTHLY_INCOME: MonthlyIncome = 3500; 
-const MOCK_MONTHLY_EXPENSES: number = 2500; 
-
-// Estes dados históricos são mockados, pois a evolução temporal é mais complexa de calcular a partir das transações
-const mockHistoricalData: HistoricalSnapshot[] = [
-    { date: '2024-01-01', totalAssets: 8000, totalDebt: 150000 },
-    { date: '2024-03-01', totalAssets: 9500, totalDebt: 145000 },
-    { date: '2024-06-01', totalAssets: 10500, totalDebt: 140000 },
-    { date: '2024-09-01', totalAssets: 11000, totalDebt: 138000 },
-    // O último ponto será substituído pelo cálculo do Património Líquido atual (assets - liabilities)
-    { date: '2024-12-01', totalAssets: 13620, totalDebt: 135320 }, 
-];
+type MonthlyIncome = number;
 
 
 const ASSET_CLASS_LABELS: { [key in AssetClass]: string } = {
@@ -79,9 +62,8 @@ const formatPercent = (value: number) => {
 const useFinancialKPIs = (
     debts: DebtType[], // Dados reais do Firestore
     goals: GoalType[], // Dados reais do Firestore
-    income: MonthlyIncome, 
+    income: MonthlyIncome,
     expenses: number,
-    historicalData: HistoricalSnapshot[]
 ) => {
     
     // Cálculos de Totais
@@ -138,31 +120,14 @@ const useFinancialKPIs = (
         return result.sort((a, b) => b.amount - a.amount);
     }, [goals, totalInvested]);
 
-    // 3. Histórico do Património Líquido (Atualiza o último ponto com o valor real)
-    const historicalNetWorth = useMemo(() => {
-        const history = historicalData.map(snapshot => ({
-            date: snapshot.date,
-            netWorth: snapshot.totalAssets - snapshot.totalDebt,
-        }));
-        
-        // Assegura que o último ponto do histórico é o PL atual
-        if (history.length > 0) {
-            history[history.length - 1].netWorth = netWorth;
-        }
-
-        return history;
-    }, [historicalData, netWorth]);
-
-
     return {
         netWorth,
-        totalInvested, 
+        totalInvested,
         totalCurrentDebt,
         debtToIncomeRatio,
         emergencyCoverageMonths,
         debtDistribution,
         assetDistribution,
-        historicalNetWorth, 
     };
 };
 
@@ -220,14 +185,66 @@ const DonutChartWithLegend = ({ title, data, total, chartComponent }: { title: s
 export default function FinancialSummary() {
     
     // 1. CHAMA O HOOK PARA OBTER DADOS REAIS
-    const { 
-        debts, 
-        goals, 
+    const {
+        debts,
+        goals,
+        transacoes,
+        netWorthSnapshots,
+        upsertNetWorthSnapshot,
         saving, // Usado como 'isLoading' ou 'isSaving'
-        error 
+        error
     } = useFirestore();
 
-    // 2. TRATAMENTO DE ESTADOS (Loading, Erro, Sem Dados)
+    // Garante que debts e goals são arrays para evitar erros de runtime
+    const actualDebts = debts || [];
+    const actualGoals = goals || [];
+
+    // 2. RENDIMENTO/DESPESA MÉDIOS REAIS (últimos meses com transações, não fixos)
+    const { avgIncome, avgExpenses, monthsUsed: incomeMonthsUsed } = useMemo(
+        () => averageMonthlyIncomeExpenses(transacoes, 3),
+        [transacoes]
+    );
+
+    // 3. CALCULA OS KPIs com os dados reais
+    const {
+        netWorth,
+        totalInvested,
+        totalCurrentDebt,
+        debtToIncomeRatio,
+        emergencyCoverageMonths,
+        debtDistribution,
+        assetDistribution,
+    } = useFinancialKPIs(
+        actualDebts as any, // Cast para evitar erros de tipagem entre LocalDebtType e DebtType
+        actualGoals as any, // Cast para evitar erros de tipagem entre LocalGoalType e GoalType
+        avgIncome,
+        avgExpenses,
+    );
+
+    // 4. TEMPO ESTIMADO DE LIQUIDAÇÃO DA DÍVIDA (amortização real, não um valor fixo)
+    const { weightedAverageMonths: payoffMonths, anyNeverPaysOff } = useMemo(
+        () => estimateDebtPayoffMonths(actualDebts as any),
+        [actualDebts]
+    );
+
+    // 5. HISTÓRICO REAL DE PATRIMÓNIO LÍQUIDO (snapshots mensais persistidos,
+    // construídos incrementalmente — não uma série inventada)
+    const historicalNetWorth = useMemo(
+        () => [...netWorthSnapshots]
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .map(s => ({ date: s.id, netWorth: s.netWorth })),
+        [netWorthSnapshots]
+    );
+
+    // Regista o snapshot do mês corrente sempre que o Património Líquido muda,
+    // para que o histórico se vá construindo com dados reais ao longo do tempo.
+    useEffect(() => {
+        if (actualDebts.length === 0 && actualGoals.length === 0) return;
+        upsertNetWorthSnapshot(nowMonth(), { totalInvested, totalDebt: totalCurrentDebt, netWorth });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [totalInvested, totalCurrentDebt, netWorth]);
+
+    // 6. TRATAMENTO DE ESTADOS (Loading, Erro, Sem Dados) — só depois de todos os hooks
     if (saving) {
         return (
             <div className="text-center p-8 text-neutral-400">
@@ -235,7 +252,7 @@ export default function FinancialSummary() {
             </div>
         );
     }
-    
+
     if (error) {
         return (
             <div className="text-center p-8 bg-red-900/30 text-red-500 rounded-lg border border-red-500">
@@ -244,30 +261,6 @@ export default function FinancialSummary() {
         );
     }
 
-    // Garante que debts e goals são arrays para evitar erros de runtime
-    const actualDebts = debts || [];
-    const actualGoals = goals || [];
-
-    // 3. CALCULA OS KPIs com os dados reais
-    const { 
-        netWorth,
-        totalInvested,
-        totalCurrentDebt,
-        debtToIncomeRatio,
-        emergencyCoverageMonths,
-        debtDistribution,
-        assetDistribution,
-        historicalNetWorth,
-    } = useFinancialKPIs(
-        actualDebts as any, // Cast para evitar erros de tipagem entre LocalDebtType e DebtType
-        actualGoals as any, // Cast para evitar erros de tipagem entre LocalGoalType e GoalType
-        MOCK_MONTHLY_INCOME, 
-        MOCK_MONTHLY_EXPENSES, 
-        mockHistoricalData
-    );
-
-    // 4. PREPARAÇÃO DOS DADOS DE RENDERIZAÇÃO
-    
     // Se não houver dados, exibe um aviso
     if (actualDebts.length === 0 && actualGoals.length === 0) {
           return (
@@ -374,33 +367,51 @@ export default function FinancialSummary() {
             {/* 3. Evolução do Património Líquido */}
             <div className="bg-slate-800 p-4 rounded-lg shadow-lg border border-slate-700">
                 <h3 className="font-bold mb-3 text-slate-100">📈 Evolução do Património Líquido</h3>
-                
-                <NetWorthLineChart historicalData={historicalNetWorth} /> 
 
+                {historicalNetWorth.length >= 2 ? (
+                    <NetWorthLineChart historicalData={historicalNetWorth} />
+                ) : (
+                    <p className="text-sm text-neutral-400 italic p-4 text-center">
+                        O histórico real está a começar a ser registado agora — volta dentro de
+                        alguns meses para veres a evolução do teu património líquido.
+                    </p>
+                )}
             </div>
 
             {/* 4. Métricas Específicas: Cobertura de Emergência */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
+
                 <div className="bg-slate-800 p-4 rounded-lg border border-white/10">
                     <h3 className="font-bold mb-3 text-slate-100">Duração Estimada da Dívida</h3>
                     <div className="p-2">
-                        <KPICard 
+                        <KPICard
                             title="Tempo de Liquidação (Média Ponderada)"
-                            value="~ 15 Anos" // Valor mock, precisaria de lógica de amortização real
-                            unit="Estimativa com pagamentos mínimos atuais."
+                            value={
+                                payoffMonths === null ? 'Sem dívida'
+                                    : anyNeverPaysOff ? `~ ${formatPayoffDuration(payoffMonths)} *`
+                                        : `~ ${formatPayoffDuration(payoffMonths)}`
+                            }
+                            unit={
+                                anyNeverPaysOff
+                                    ? '* Uma ou mais dívidas nunca se pagam com o valor mínimo atual (juro excede a prestação).'
+                                    : 'Estimativa com pagamentos mínimos atuais (amortização real).'
+                            }
                             colorClass="text-red-400"
                         />
                     </div>
                 </div>
-                
+
                 <div className="bg-slate-800 p-4 rounded-lg border border-white/10">
                     <h3 className="font-bold mb-3 text-slate-100">Cobertura de Emergência</h3>
                     <div className="p-2">
-                        <KPICard 
+                        <KPICard
                             title="Meses de Despesas Cobertos"
                             value={emergencyCoverageMonths.toFixed(1)}
-                            unit={`Meses de cobertura (Fundo Emergência / ${formatCurrency(MOCK_MONTHLY_EXPENSES)} despesas)`}
+                            unit={
+                                incomeMonthsUsed > 0
+                                    ? `Fundo Emergência / ${formatCurrency(avgExpenses)} despesa média mensal (últimos ${incomeMonthsUsed} ${incomeMonthsUsed === 1 ? 'mês' : 'meses'})`
+                                    : 'Sem transações suficientes para estimar a despesa mensal.'
+                            }
                             colorClass={emergencyCoverageMonths >= 6 ? 'text-green-500' : emergencyCoverageMonths >= 3 ? 'text-yellow-500' : 'text-red-500'}
                         />
                     </div>
